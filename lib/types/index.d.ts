@@ -2245,7 +2245,7 @@ export declare class AuthManager implements AuthProvider {
        * @remarks
        * This class contains lower-level functions that are implemented by Wallet.
        */
-      export declare class Mint {
+      declare class Mint {
           private ws?;
           private _mintUrl;
           private _request;
@@ -2813,6 +2813,8 @@ export declare class AuthManager implements AuthProvider {
            */
           private normalizeMeltOnchainFields;
       }
+      export { Mint as CashuMint }
+      export { Mint }
 
       /**
        * Builder for minting proofs from a quote.
@@ -5198,7 +5200,7 @@ export declare class AuthManager implements AuthProvider {
            * const { keep, send } = await wallet.send(32, proofs);
            * ```
            */
-          export declare class Wallet {
+          declare class Wallet {
               /**
                * Mint instance - allows direct calls to the mint.
                */
@@ -6198,6 +6200,8 @@ export declare class AuthManager implements AuthProvider {
                    spent: T[];
                }>;
               }
+              export { Wallet as CashuWallet }
+              export { Wallet }
 
               /**
                * Developer friendly view of the wallet's deterministic output counters.
