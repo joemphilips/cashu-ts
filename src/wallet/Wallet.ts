@@ -18,6 +18,7 @@ import {
   assertSigAllInputs,
   buildLegacyP2PKSigAllMessage,
   parseSecret,
+  type P2PKOptions,
 } from '../crypto';
 import { type Logger, NULL_LOGGER, fail, failIf, failIfNullish, safeCallback } from '../logger';
 import { Mint } from '../mint';
@@ -97,6 +98,42 @@ import { WalletOps } from './WalletOps';
 // model helpers
 
 const PENDING_KEYSET_ID = '__PENDING__';
+
+export interface ConditionalSwapOutputGroup {
+  label: string;
+  kind: 'random' | 'p2pk';
+  amount: AmountLike;
+  p2pk?: P2PKOptions;
+  customSplit?: AmountLike[];
+}
+
+export interface ConditionalSwapOptions {
+  /**
+   * Conditional keyset to preserve. If omitted, every input proof must share one keyset id and that
+   * id is used.
+   */
+  keysetId?: string;
+  inputs: ProofLike[];
+  outputs: ConditionalSwapOutputGroup[];
+}
+
+export interface ConditionalSwapPreview {
+  keysetId: string;
+  inputs: Proof[];
+  outputDataByLabel: Record<string, OutputData[]>;
+}
+
+export interface RedeemOutcomeProofsOptions {
+  /**
+   * Conditional proofs carrying the oracle witness required by the mint.
+   */
+  inputs: ProofLike[];
+  /**
+   * Regular-output blinded messages that will receive the redeemed sats. Persist these before
+   * calling the mint when the caller needs crash recovery.
+   */
+  outputs: OutputDataLike[];
+}
 
 /**
  * Class that represents a Cashu wallet.
@@ -1328,6 +1365,171 @@ class Wallet {
     };
   }
 
+  /**
+   * Swap proofs within one conditional keyset.
+   *
+   * CTF conditional keysets are condition-derived and may not be listed as the wallet's active
+   * regular keyset. This method deliberately fetches the requested/source keyset directly and
+   * builds every blinded output against that same keyset, instead of using regular wallet keyset
+   * selection.
+   */
+  async prepareConditionalSwap(options: ConditionalSwapOptions): Promise<ConditionalSwapPreview> {
+    const inputs = normalizeProofAmounts(options.inputs);
+    if (inputs.length === 0) {
+      throw new CTSError('prepareConditionalSwap requires at least one input proof');
+    }
+    if (options.outputs.length === 0) {
+      throw new CTSError('prepareConditionalSwap requires at least one output group');
+    }
+
+    const keysetId = options.keysetId ?? inputs[0].id;
+    if (!keysetId) {
+      throw new CTSError('prepareConditionalSwap requires a conditional keyset id');
+    }
+    const mismatched = inputs.find((proof) => proof.id !== keysetId);
+    if (mismatched) {
+      throw new CTSError(
+        `prepareConditionalSwap inputs must use one keyset: expected ${keysetId}, got ${mismatched.id}`,
+      );
+    }
+
+    const keysetResponse = await this.mint.getKeys(keysetId);
+    const keyset = keysetResponse.keysets.find((candidate) => candidate.id === keysetId);
+    if (!keyset || Object.keys(keyset.keys).length === 0) {
+      throw new CTSError(`Mint returned no keys for conditional keyset ${keysetId}`);
+    }
+
+    const seenLabels = new Set<string>();
+    let outputTotal = Amount.zero();
+    const built = options.outputs.map((group) => {
+      if (seenLabels.has(group.label)) {
+        throw new CTSError(`prepareConditionalSwap output label is duplicated: ${group.label}`);
+      }
+      seenLabels.add(group.label);
+      const amount = Amount.from(group.amount);
+      if (amount.isZero()) {
+        throw new CTSError(`prepareConditionalSwap output ${group.label} amount must be positive`);
+      }
+      outputTotal = outputTotal.add(amount);
+      if (group.kind === 'p2pk') {
+        if (!group.p2pk) {
+          throw new CTSError(
+            `prepareConditionalSwap output ${group.label} is missing P2PK options`,
+          );
+        }
+        return {
+          label: group.label,
+          data: OutputData.createP2PKData(group.p2pk, amount, keyset, group.customSplit),
+        };
+      }
+      return {
+        label: group.label,
+        data: OutputData.createRandomData(amount, keyset, group.customSplit),
+      };
+    });
+
+    const fee = Amount.from(Math.ceil((inputs.length * (keyset.input_fee_ppk ?? 0)) / 1000));
+    const expectedOutputTotal = sumProofs(inputs).subtract(fee);
+    if (!outputTotal.equals(expectedOutputTotal)) {
+      throw new CTSError(
+        `prepareConditionalSwap output total ${outputTotal.toString()} does not match input total ` +
+          `${expectedOutputTotal.toString()} after fees`,
+      );
+    }
+
+    return {
+      keysetId,
+      inputs,
+      outputDataByLabel: Object.fromEntries(built.map((group) => [group.label, group.data])),
+    };
+  }
+
+  async completeConditionalSwap(preview: ConditionalSwapPreview): Promise<Record<string, Proof[]>> {
+    const flatOutputs = Object.values(preview.outputDataByLabel).flat();
+    const wireOutputs = flatOutputs.map((output) => ({
+      ...output.blindedMessage,
+      amount: output.blindedMessage.amount.toNumber(),
+    })) as unknown as SwapRequest['outputs'];
+    const { signatures } = await this.mint.swap({
+      inputs: preview.inputs,
+      outputs: wireOutputs,
+    });
+    this.failIf(
+      signatures.length !== flatOutputs.length,
+      `Mint returned ${signatures.length} signatures, expected ${flatOutputs.length}. ` +
+        'Inputs may already be spent; if the wallet is seeded, try restoring (NUT-09) to recover.',
+    );
+    this.validateReturnedSignatures(signatures, flatOutputs);
+
+    const keysetResponse = await this.mint.getKeys(preview.keysetId);
+    const keyset = keysetResponse.keysets.find((candidate) => candidate.id === preview.keysetId);
+    if (!keyset || Object.keys(keyset.keys).length === 0) {
+      throw new CTSError(`Mint returned no keys for conditional keyset ${preview.keysetId}`);
+    }
+
+    const result: Record<string, Proof[]> = {};
+    let cursor = 0;
+    for (const [label, outputData] of Object.entries(preview.outputDataByLabel)) {
+      result[label] = [];
+      for (const output of outputData) {
+        const signature = signatures[cursor];
+        cursor += 1;
+        if (signature.id !== preview.keysetId) {
+          throw new CTSError(
+            `Mint signed conditional swap output with keyset ${signature.id}; expected ${preview.keysetId}`,
+          );
+        }
+        result[label].push(output.toProof(signature, keyset));
+      }
+    }
+    return result;
+  }
+
+  async swapConditional(options: ConditionalSwapOptions): Promise<Record<string, Proof[]>> {
+    return this.completeConditionalSwap(await this.prepareConditionalSwap(options));
+  }
+
+  async redeemOutcomeProofs(options: RedeemOutcomeProofsOptions): Promise<Proof[]> {
+    const inputs = normalizeProofAmounts(options.inputs);
+    const outputData = [...options.outputs];
+    if (inputs.length === 0) {
+      throw new CTSError('redeemOutcomeProofs requires at least one input proof');
+    }
+    if (outputData.length === 0) {
+      throw new CTSError('redeemOutcomeProofs requires at least one output');
+    }
+
+    const keysetId = outputData[0].blindedMessage.id;
+    if (!keysetId) {
+      throw new CTSError('redeemOutcomeProofs requires output keyset ids');
+    }
+    const mismatched = outputData.find((output) => output.blindedMessage.id !== keysetId);
+    if (mismatched) {
+      throw new CTSError(
+        `redeemOutcomeProofs outputs must use one keyset: expected ${keysetId}, got ${mismatched.blindedMessage.id}`,
+      );
+    }
+
+    const { signatures } = await this.mint.redeemOutcome({
+      inputs,
+      outputs: outputData.map((output) => output.blindedMessage),
+    });
+    this.failIf(
+      signatures.length !== outputData.length,
+      `Mint returned ${signatures.length} signatures, expected ${outputData.length}. ` +
+        'Inputs may already be spent; if the wallet is seeded, try restoring (NUT-09) to recover.',
+    );
+    this.validateReturnedSignatures(signatures, outputData);
+
+    const keysetResponse = await this.mint.getKeys(keysetId);
+    const keyset = keysetResponse.keysets.find((candidate) => candidate.id === keysetId);
+    if (!keyset || Object.keys(keyset.keys).length === 0) {
+      throw new CTSError(`Mint returned no keys for redeem output keyset ${keysetId}`);
+    }
+
+    return outputData.map((output, index) => output.toProof(signatures[index], keyset));
+  }
+
   // -----------------------------------------------------------------
   // Section: Transaction Helpers
   // -----------------------------------------------------------------
@@ -1651,13 +1853,23 @@ class Wallet {
    * @param options.normalize Optional callback to normalize method-specific response fields.
    * @returns The mint quote response.
    */
+  async createMintQuote(amount: AmountLike, description?: string): Promise<MintQuoteBolt11Response>;
   async createMintQuote<TRes extends MintQuoteBaseResponse = MintQuoteBaseResponse>(
     method: string,
     payload: Record<string, unknown>,
     options?: { normalize?: (raw: Record<string, unknown>) => TRes },
-  ): Promise<TRes> {
-    const body = { ...payload, unit: this._unit };
-    const res = await this.mint.createMintQuote<TRes>(method, body, {
+  ): Promise<TRes>;
+  async createMintQuote<TRes extends MintQuoteBaseResponse = MintQuoteBaseResponse>(
+    methodOrAmount: string | AmountLike,
+    payloadOrDescription?: Record<string, unknown> | string,
+    options?: { normalize?: (raw: Record<string, unknown>) => TRes },
+  ): Promise<TRes | MintQuoteBolt11Response> {
+    if (typeof methodOrAmount !== 'string' || typeof payloadOrDescription === 'string') {
+      return this.createMintQuoteBolt11(methodOrAmount, payloadOrDescription as string | undefined);
+    }
+
+    const body = { ...(payloadOrDescription as Record<string, unknown>), unit: this._unit };
+    const res = await this.mint.createMintQuote<TRes>(methodOrAmount, body, {
       normalize: options?.normalize,
     });
     return { ...res, unit: res.unit || this._unit };
@@ -1798,13 +2010,23 @@ class Wallet {
    * @param options.normalize Optional callback to normalize method-specific response fields.
    * @returns The mint quote response.
    */
+  async checkMintQuote(quote: string | MintQuoteBolt11Response): Promise<MintQuoteBolt11Response>;
   async checkMintQuote<TRes extends MintQuoteBaseResponse = MintQuoteBaseResponse>(
     method: string,
     quote: string | Pick<TRes, 'quote'>,
     options?: { normalize?: (raw: Record<string, unknown>) => TRes },
-  ): Promise<TRes> {
+  ): Promise<TRes>;
+  async checkMintQuote<TRes extends MintQuoteBaseResponse = MintQuoteBaseResponse>(
+    methodOrQuote: string | MintQuoteBolt11Response,
+    quote?: string | Pick<TRes, 'quote'>,
+    options?: { normalize?: (raw: Record<string, unknown>) => TRes },
+  ): Promise<TRes | MintQuoteBolt11Response> {
+    if (quote === undefined) {
+      return this.checkMintQuoteBolt11(methodOrQuote);
+    }
+
     const quoteId = typeof quote === 'string' ? quote : (quote as { quote: string }).quote;
-    return this.mint.checkMintQuote<TRes>(method, quoteId, {
+    return this.mint.checkMintQuote<TRes>(methodOrQuote as string, quoteId, {
       normalize: options?.normalize,
     });
   }
@@ -1950,14 +2172,42 @@ class Wallet {
    * @param outputType Configuration for proof generation. Defaults to wallet.defaultOutputType().
    * @returns Minted proofs.
    */
+  async mintProofs(
+    amount: AmountLike,
+    quote: string | MintQuoteBolt11Response,
+    config?: MintProofsConfig,
+    outputType?: OutputType,
+  ): Promise<Proof[]>;
   async mintProofs<TQuote extends Pick<MintQuoteBaseResponse, 'quote'>>(
     method: string,
     amount: AmountLike,
     quote: TQuote,
     config?: MintProofsConfig,
     outputType?: OutputType,
+  ): Promise<Proof[]>;
+  async mintProofs<TQuote extends Pick<MintQuoteBaseResponse, 'quote'>>(
+    methodOrAmount: string | AmountLike,
+    amountOrQuote: AmountLike | string | MintQuoteBolt11Response,
+    quoteOrConfig?: TQuote | MintProofsConfig,
+    configOrOutputType?: MintProofsConfig | OutputType,
+    outputType?: OutputType,
   ): Promise<Proof[]> {
-    const preview = await this.prepareMint(method, amount, quote, config, outputType);
+    if (typeof methodOrAmount !== 'string') {
+      return this.mintProofsBolt11(
+        methodOrAmount,
+        amountOrQuote as string | MintQuoteBolt11Response,
+        quoteOrConfig as MintProofsConfig | undefined,
+        configOrOutputType as OutputType | undefined,
+      );
+    }
+
+    const preview = await this.prepareMint(
+      methodOrAmount,
+      amountOrQuote as AmountLike,
+      quoteOrConfig as TQuote,
+      configOrOutputType as MintProofsConfig | undefined,
+      outputType,
+    );
     return this.completeMint(preview);
   }
 
@@ -2363,13 +2613,31 @@ class Wallet {
    * @param options.normalize Optional callback to normalize method-specific response fields.
    * @returns The melt quote response.
    */
+  async createMeltQuote(invoice: string, amountMsat?: AmountLike): Promise<MeltQuoteBolt11Response>;
   async createMeltQuote<TRes extends MeltQuoteBaseResponse = MeltQuoteBaseResponse>(
     method: string,
     payload: Record<string, unknown>,
     options?: { normalize?: (raw: Record<string, unknown>) => TRes },
-  ): Promise<TRes> {
-    const body = { ...payload, unit: this._unit };
-    const res = await this.mint.createMeltQuote<TRes>(method, body, {
+  ): Promise<TRes>;
+  async createMeltQuote<TRes extends MeltQuoteBaseResponse = MeltQuoteBaseResponse>(
+    methodOrInvoice: string,
+    payloadOrAmountMsat?: Record<string, unknown> | AmountLike,
+    options?: { normalize?: (raw: Record<string, unknown>) => TRes },
+  ): Promise<TRes | MeltQuoteBolt11Response> {
+    if (
+      payloadOrAmountMsat === undefined ||
+      typeof payloadOrAmountMsat === 'number' ||
+      typeof payloadOrAmountMsat === 'bigint' ||
+      (typeof payloadOrAmountMsat === 'object' && 'toNumber' in payloadOrAmountMsat)
+    ) {
+      return this.createMeltQuoteBolt11(
+        methodOrInvoice,
+        payloadOrAmountMsat as AmountLike | undefined,
+      );
+    }
+
+    const body = { ...(payloadOrAmountMsat as Record<string, unknown>), unit: this._unit };
+    const res = await this.mint.createMeltQuote<TRes>(methodOrInvoice, body, {
       normalize: options?.normalize,
     });
     return { ...res, unit: res.unit || this._unit };
@@ -2593,15 +2861,46 @@ class Wallet {
    * @param outputType Configuration for proof generation. Defaults to wallet.defaultOutputType().
    * @returns MeltProofsResponse with quote and change proofs.
    */
+  async meltProofs(
+    meltQuote: MeltQuoteBolt11Response,
+    proofsToSend: ProofLike[],
+    config?: MeltProofsConfig,
+    outputType?: OutputType,
+  ): Promise<MeltProofsResponse<MeltQuoteBolt11Response>>;
   async meltProofs<TQuote extends Pick<MeltQuoteBaseResponse, 'amount' | 'quote'>>(
     method: string,
     meltQuote: TQuote,
     proofsToSend: ProofLike[],
     config?: MeltProofsConfig,
     outputType?: OutputType,
-  ): Promise<MeltProofsResponse<TQuote>> {
-    const meltTxn = await this.prepareMelt(method, meltQuote, proofsToSend, config, outputType);
-    return this.completeMelt<TQuote>(meltTxn, config?.privkey);
+  ): Promise<MeltProofsResponse<TQuote>>;
+  async meltProofs<TQuote extends Pick<MeltQuoteBaseResponse, 'amount' | 'quote'>>(
+    methodOrQuote: string | MeltQuoteBolt11Response,
+    meltQuoteOrProofs: TQuote | ProofLike[],
+    proofsOrConfig?: ProofLike[] | MeltProofsConfig,
+    configOrOutputType?: MeltProofsConfig | OutputType,
+    outputType?: OutputType,
+  ): Promise<MeltProofsResponse<TQuote> | MeltProofsResponse<MeltQuoteBolt11Response>> {
+    if (typeof methodOrQuote !== 'string') {
+      return this.meltProofsBolt11(
+        methodOrQuote,
+        meltQuoteOrProofs as ProofLike[],
+        proofsOrConfig as MeltProofsConfig | undefined,
+        configOrOutputType as OutputType | undefined,
+      );
+    }
+
+    const meltTxn = await this.prepareMelt(
+      methodOrQuote,
+      meltQuoteOrProofs as TQuote,
+      proofsOrConfig as ProofLike[],
+      configOrOutputType as MeltProofsConfig | undefined,
+      outputType,
+    );
+    return this.completeMelt<TQuote>(
+      meltTxn,
+      (configOrOutputType as MeltProofsConfig | undefined)?.privkey,
+    );
   }
 
   /**

@@ -9,7 +9,7 @@ import type { AuthProvider } from '../auth/AuthProvider';
 import { OIDCAuth, type OIDCAuthOptions } from '../auth/OIDCAuth';
 import { type Logger, NULL_LOGGER, failIf } from '../logger';
 import { Amount, type AmountLike } from '../model/Amount';
-import { CTSError } from '../model/Errors';
+import { CTSError, MintOperationError } from '../model/Errors';
 import { MintInfo } from '../model/MintInfo';
 import {
   type MintQuoteBaseResponse,
@@ -32,6 +32,7 @@ import {
   type MintQuoteOnchainResponse,
   type MeltQuoteOnchainRequest,
   type MeltQuoteOnchainResponse,
+  type Proof,
   type SwapRequest,
   type SerializedBlindedMessage,
   type SerializedBlindedSignature,
@@ -61,6 +62,36 @@ import type {
   CheckStatePayload,
   PostRestorePayload,
 } from './types';
+
+export interface CtfConditionPartition {
+  collateral: string;
+  parent_collection_id: string;
+  keysets: Record<string, string>;
+}
+
+export interface CtfConditionInfo {
+  condition_id: string;
+  partitions: CtfConditionPartition[];
+}
+
+export interface CtfSplitRequest {
+  condition_id: string;
+  inputs: Proof[];
+  outputs: Record<string, SerializedBlindedMessage[]>;
+}
+
+export interface CtfSplitResponse {
+  signatures: Record<string, SerializedBlindedSignature[]>;
+}
+
+export interface RedeemOutcomeRequest {
+  inputs: Proof[];
+  outputs: SerializedBlindedMessage[];
+}
+
+export interface RedeemOutcomeResponse {
+  signatures: SerializedBlindedSignature[];
+}
 
 /**
  * Class represents Cashu Mint API.
@@ -946,6 +977,137 @@ class Mint {
     return data;
   }
 
+  /**
+   * Fetches one conditional-token condition from a CTF-aware mint.
+   *
+   * The CTF extension keeps condition partition metadata outside NUT-02 keyset discovery; callers
+   * use this to resolve root outcome collection keysets before building complete-set split
+   * outputs.
+   */
+  async getCtfCondition(conditionId: string, customRequest?: RequestFn): Promise<CtfConditionInfo> {
+    if (!/^[0-9a-fA-F]{64}$/.test(conditionId)) {
+      throw new CTSError('conditionId must be a 64-character hex string for CTF condition lookup');
+    }
+    const normalizedConditionId = conditionId.toLowerCase();
+    const data = await this.getCtfConditionResponse(normalizedConditionId, customRequest);
+    const dataObject = data as Record<string, unknown>;
+    const condition = isObj(dataObject.condition)
+      ? (dataObject.condition as CtfConditionInfo)
+      : (data as CtfConditionInfo);
+    if (
+      !isObj(condition) ||
+      condition.condition_id?.toLowerCase() !== normalizedConditionId ||
+      !Array.isArray(condition.partitions)
+    ) {
+      this._logger.error('Invalid response from mint...', { data, op: 'getCtfCondition' });
+      throw new CTSError(`Mint did not return condition ${normalizedConditionId}`);
+    }
+    return condition;
+  }
+
+  private async getCtfConditionResponse(
+    normalizedConditionId: string,
+    customRequest?: RequestFn,
+  ): Promise<CtfConditionInfo | { condition?: CtfConditionInfo }> {
+    try {
+      return await this.requestWithAuth<CtfConditionInfo | { condition?: CtfConditionInfo }>(
+        'GET',
+        `/v1/conditions/${normalizedConditionId}`,
+        {},
+        customRequest,
+      );
+    } catch (e) {
+      if (!this.isConditionNotFound(e)) throw e;
+      const data = await this.requestWithAuth<
+        CtfConditionInfo[] | { conditions?: CtfConditionInfo[] }
+      >('GET', '/v1/conditions', {}, customRequest);
+      const conditions = Array.isArray(data)
+        ? data
+        : isObj(data) && Array.isArray(data.conditions)
+          ? data.conditions
+          : [];
+      const condition = conditions.find(
+        (candidate) => candidate.condition_id?.toLowerCase() === normalizedConditionId,
+      );
+      if (!condition) throw e;
+      return condition;
+    }
+  }
+
+  private isConditionNotFound(e: unknown): boolean {
+    if (e instanceof MintOperationError && e.code === 13021) return true;
+    if (e instanceof CTSError && /condition not found/i.test(e.message)) return true;
+    return false;
+  }
+
+  /**
+   * Performs a CTF complete-set split.
+   *
+   * Inputs are regular collateral proofs and outputs are grouped by outcome collection. The mint
+   * returns one signature array per requested collection.
+   */
+  async ctfSplit(
+    splitPayload: CtfSplitRequest,
+    customRequest?: RequestFn,
+  ): Promise<CtfSplitResponse> {
+    const requestPayload = {
+      ...splitPayload,
+      outputs: Object.fromEntries(
+        Object.entries(splitPayload.outputs).map(([collection, outputs]) => [
+          collection,
+          this.toWireBlindedMessages(outputs),
+        ]),
+      ),
+    };
+    const data = await this.requestWithAuth<CtfSplitResponse>(
+      'POST',
+      '/v1/ctf/split',
+      { requestBody: requestPayload as unknown as Record<string, unknown> },
+      customRequest,
+    );
+    if (!isObj(data) || !isObj(data.signatures)) {
+      this._logger.error('Invalid response from mint...', { data, op: 'ctfSplit' });
+      throw new CTSError('Invalid response from mint');
+    }
+    for (const [collection, signatures] of Object.entries(data.signatures)) {
+      if (!Array.isArray(signatures)) {
+        this._logger.error('Invalid response from mint...', { data, op: 'ctfSplit' });
+        throw new CTSError(`Mint returned invalid CTF split signatures for ${collection}`);
+      }
+      data.signatures[collection] = this.normalizeSignatureAmounts(signatures);
+    }
+    return data;
+  }
+
+  /**
+   * Redeems witnessed conditional outcome proofs into regular mint proofs.
+   *
+   * Callers must attach the oracle witness to each conditional input proof before invoking this
+   * method. Output blinded messages are normalized to the mint's numeric wire shape so CTF redeem
+   * follows the same request encoding as regular swaps.
+   */
+  async redeemOutcome(
+    redeemPayload: RedeemOutcomeRequest,
+    customRequest?: RequestFn,
+  ): Promise<RedeemOutcomeResponse> {
+    const requestPayload = {
+      ...redeemPayload,
+      outputs: this.toWireBlindedMessages(redeemPayload.outputs),
+    };
+    const data = await this.requestWithAuth<RedeemOutcomeResponse>(
+      'POST',
+      '/v1/redeem_outcome',
+      { requestBody: requestPayload as unknown as Record<string, unknown> },
+      customRequest,
+    );
+    if (!isObj(data) || !Array.isArray(data.signatures)) {
+      this._logger.error('Invalid response from mint...', { data, op: 'redeemOutcome' });
+      throw new CTSError('Invalid response from mint');
+    }
+    data.signatures = this.normalizeSignatureAmounts(data.signatures);
+    return data;
+  }
+
   // -----------------------------------------------------------------
   // Section: Websockets
   // -----------------------------------------------------------------
@@ -1128,6 +1290,15 @@ class Mint {
     return messages.map((message) => ({
       ...message,
       amount: Amount.from(message.amount),
+    }));
+  }
+
+  private toWireBlindedMessages(
+    messages: SerializedBlindedMessage[],
+  ): Array<Omit<SerializedBlindedMessage, 'amount'> & { amount: number }> {
+    return messages.map((message) => ({
+      ...message,
+      amount: Amount.from(message.amount).toNumber(),
     }));
   }
 
