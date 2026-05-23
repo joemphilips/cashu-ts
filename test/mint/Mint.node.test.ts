@@ -15,6 +15,7 @@ import {
   injectWebSocketImpl,
   RateLimitError,
   Amount,
+  MintOperationError,
 } from '../../src';
 import type { AuthProvider, Logger, Proof, RequestFn } from '../../src';
 import { NULL_LOGGER } from '../../src/logger';
@@ -1368,6 +1369,40 @@ describe('Mint normalization', () => {
       data: { signatures: {} },
       op: 'mintBatch.bolt11',
     });
+  });
+
+  it('getCtfCondition falls back to the conditions list when direct lookup is unsupported', async () => {
+    const conditionId = 'a'.repeat(64);
+    const requestSpy = vi.fn(async (options: ReqArgs) => {
+      if (options.endpoint === `${mintUrl}/v1/conditions/${conditionId}`) {
+        throw new MintOperationError(13021, 'Condition not found');
+      }
+      expect(options.endpoint).toBe(`${mintUrl}/v1/conditions`);
+      return {
+        conditions: [
+          {
+            condition_id: conditionId,
+            partitions: [
+              {
+                collateral: 'sat',
+                parent_collection_id: '0'.repeat(64),
+                keysets: { YES: 'keyset-yes', NO: 'keyset-no' },
+              },
+            ],
+          },
+        ],
+      };
+    }) as RequestFn;
+    const mint = new Mint(mintUrl, { customRequest: requestSpy });
+
+    const condition = await mint.getCtfCondition(conditionId);
+
+    expect(condition.condition_id).toBe(conditionId);
+    expect(condition.partitions[0].keysets).toEqual({
+      YES: 'keyset-yes',
+      NO: 'keyset-no',
+    });
+    expect(requestSpy).toHaveBeenCalledTimes(2);
   });
 
   it('throws on invalid minted signatures responses', async () => {

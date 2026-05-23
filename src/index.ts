@@ -9,7 +9,7 @@
 // ==========================
 // Public API Surface
 // ==========================
-export { Mint } from './mint';
+export { Mint, Mint as CashuMint } from './mint';
 export { KeyChain } from './wallet/KeyChain';
 export { Keyset } from './wallet/Keyset';
 export { LockBuilder, P2PKBuilder } from './wallet/P2PKBuilder';
@@ -20,7 +20,7 @@ export {
   type SerializedProof,
   type SerializedSwapPreview,
 } from './wallet/SwapPreview';
-export { Wallet } from './wallet/Wallet';
+export { Wallet, Wallet as CashuWallet } from './wallet/Wallet';
 export { WalletCounters } from './wallet/WalletCounters';
 export { WalletEvents } from './wallet/WalletEvents';
 export {
@@ -81,7 +81,15 @@ export * from './crypto';
 // Core Utils
 export * from './utils/core';
 export * from './utils/verifyProofs';
+export { getEncodedToken as getEncodedTokenV4 } from './utils/core';
 export { JSONInt, type JSONIntApi } from './utils/JSONInt';
+
+// Compatibility aliases for consumers migrating from cashu-ts 2.x/3.x.
+export type {
+  MintQuoteBolt11Response as MintQuoteResponse,
+  MintQuoteBolt11Response as PartialMintQuoteResponse,
+  MeltQuoteBolt11Response as MeltQuoteResponse,
+} from './model/types/NUT23';
 
 // Payment request facade (tests rely on these at top level)
 export { PaymentRequest } from './model/PaymentRequest';
