@@ -408,7 +408,7 @@ function fromV4CborTemplate(template: TokenV4Template): Token {
  * @param keysets Array of full keyset ID strings, eg: from `KeyChain.getAllKeysetIds()`
  * @returns Cashu token object.
  */
-export function getDecodedToken(tokenString: string, keysetIds: readonly string[] = []): Token {
+export function getDecodedToken(tokenString: string, keysetIds: readonly string[]): Token {
   // Plain JS callers on the pre-v4 signature otherwise fail deep inside on keysetIds.map
   if (!Array.isArray(keysetIds)) {
     throw new CTSError(
