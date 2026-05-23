@@ -1,5 +1,6 @@
 export * from './bip39';
 export * from './core';
+export * from './CTF';
 export * from './NUT01';
 export * from './NUT10';
 export * from './NUT11';

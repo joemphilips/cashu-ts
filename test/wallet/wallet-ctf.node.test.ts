@@ -8,7 +8,9 @@ import { mint, mintUrl, useTestServer } from './_setup';
 
 const server = useTestServer();
 
-const CONDITIONAL_KEYSET_ID = 'condition-derived-keyset-id';
+const CONDITION_ID = 'aa'.repeat(32);
+const OUTCOME_COLLECTION_ID = 'cc'.repeat(32);
+const CONDITIONAL_KEYSET_ID = '0170110f06b9bb85565a6746ca5715f877b99db14d87219f6e9030cb529f61e6ea';
 const REDEEM_SIGNATURE = '021179b095a67380ab3285424b563b7aab9818bd38068e1930641b3dceb364d422';
 
 function conditionalProof(amount: number, secret: string): Proof {
@@ -29,9 +31,35 @@ function conditionalKeys(inputFeePpk = 0) {
 }
 
 describe('Wallet.swapConditional', () => {
+  test('exposes the optional wallet.ctf facade only when CTF is enabled', () => {
+    expect(new Wallet(mint).ctf).toBeUndefined();
+
+    const wallet = new Wallet(mint, { enableCtf: true });
+
+    expect(wallet.ctf).toBeDefined();
+    expect(typeof wallet.ctf?.swapConditional).toBe('function');
+  });
+
   test('pins every output to the source conditional keyset instead of the wallet regular keyset', async () => {
     const seenOutputs: Array<{ amount: string | number; id: string }> = [];
     server.use(
+      http.get(mintUrl + '/v1/conditional_keysets', () =>
+        HttpResponse.json({
+          keysets: [
+            {
+              id: CONDITIONAL_KEYSET_ID,
+              unit: 'sat',
+              active: true,
+              input_fee_ppk: 0,
+              final_expiry: 1754296607,
+              condition_id: CONDITION_ID,
+              outcome_collection: 'YES',
+              outcome_collection_id: OUTCOME_COLLECTION_ID,
+              registered_at: 1_700_000_000,
+            },
+          ],
+        }),
+      ),
       http.get(mintUrl + '/v1/keys/' + CONDITIONAL_KEYSET_ID, () =>
         HttpResponse.json({ keysets: [conditionalKeys()] }),
       ),
@@ -70,6 +98,23 @@ describe('Wallet.swapConditional', () => {
 
   test('can create P2PK-locked conditional outputs and unlocked same-keyset change', async () => {
     server.use(
+      http.get(mintUrl + '/v1/conditional_keysets', () =>
+        HttpResponse.json({
+          keysets: [
+            {
+              id: CONDITIONAL_KEYSET_ID,
+              unit: 'sat',
+              active: true,
+              input_fee_ppk: 0,
+              final_expiry: 1754296607,
+              condition_id: CONDITION_ID,
+              outcome_collection: 'YES',
+              outcome_collection_id: OUTCOME_COLLECTION_ID,
+              registered_at: 1_700_000_000,
+            },
+          ],
+        }),
+      ),
       http.get(mintUrl + '/v1/keys/' + CONDITIONAL_KEYSET_ID, () =>
         HttpResponse.json({ keysets: [conditionalKeys()] }),
       ),

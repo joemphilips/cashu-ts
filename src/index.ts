@@ -21,6 +21,13 @@ export {
   type SerializedSwapPreview,
 } from './wallet/SwapPreview';
 export { Wallet, Wallet as CashuWallet } from './wallet/Wallet';
+export type {
+  ConditionalSwapOptions,
+  ConditionalSwapOutputGroup,
+  ConditionalSwapPreview,
+  RedeemOutcomeProofsOptions,
+  WalletCtf,
+} from './wallet/Wallet';
 export { WalletCounters } from './wallet/WalletCounters';
 export { WalletEvents } from './wallet/WalletEvents';
 export {

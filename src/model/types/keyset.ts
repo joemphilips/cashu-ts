@@ -19,6 +19,25 @@ export type HasKeysetId = { id: string };
  */
 export type HasKeysetKeys = { id: string; keys: Keys };
 
+export interface ConditionalKeysetMetadata {
+  /**
+   * 32-byte condition id as a 64-character hex string.
+   */
+  conditionId: string;
+  /**
+   * Outcome collection label, e.g. "YES" or "ALICE|BOB".
+   */
+  outcomeCollection: string;
+  /**
+   * 32-byte outcome collection id as a 64-character hex string.
+   */
+  outcomeCollectionId: string;
+  /**
+   * Unix timestamp from the mint's conditional-keyset registry, when known.
+   */
+  registeredAt?: number;
+}
+
 /**
  * NUT-01 Keys API response (/v1/keys)
  */
@@ -68,6 +87,10 @@ export type MintKeys = {
    * key signs for.
    */
   keys: Keys;
+  /**
+   * NUT-CTF conditional keyset metadata. Present only for conditional keysets.
+   */
+  conditional?: ConditionalKeysetMetadata;
 };
 
 /**
@@ -94,6 +117,10 @@ export type MintKeyset = {
    * Expiry of the keyset.
    */
   final_expiry?: number;
+  /**
+   * NUT-CTF conditional keyset metadata. Present only for conditional keysets.
+   */
+  conditional?: ConditionalKeysetMetadata;
 };
 
 /**

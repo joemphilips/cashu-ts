@@ -556,17 +556,52 @@ export declare class AuthManager implements AuthProvider {
 
     export declare function computeMessageDigest(message: string, asHex: true): string;
 
-    declare interface ConditionalSwapOptions {
+    declare interface ConditionalKeysetInfo {
+        id: string;
+        unit: string;
+        active: boolean;
+        input_fee_ppk?: number;
+        final_expiry?: number;
+        condition_id: string;
+        outcome_collection: string;
+        outcome_collection_id: string;
+        registered_at?: number;
+    }
+
+    export declare interface ConditionalKeysetMetadata {
         /**
-         * Conditional keyset to preserve. If omitted, every input proof must share
-         * one keyset id and that id is used.
+         * 32-byte condition id as a 64-character hex string.
+         */
+        conditionId: string;
+        /**
+         * Outcome collection label, e.g. "YES" or "ALICE|BOB".
+         */
+        outcomeCollection: string;
+        /**
+         * 32-byte outcome collection id as a 64-character hex string.
+         */
+        outcomeCollectionId: string;
+        /**
+         * Unix timestamp from the mint's conditional-keyset registry, when known.
+         */
+        registeredAt?: number;
+    }
+
+    declare interface ConditionalKeysetsResponse {
+        keysets: ConditionalKeysetInfo[];
+    }
+
+    export declare interface ConditionalSwapOptions {
+        /**
+         * Conditional keyset to preserve. If omitted, every input proof must share one keyset id and that
+         * id is used.
          */
         keysetId?: string;
         inputs: ProofLike[];
         outputs: ConditionalSwapOutputGroup[];
     }
 
-    declare interface ConditionalSwapOutputGroup {
+    export declare interface ConditionalSwapOutputGroup {
         label: string;
         kind: 'random' | 'p2pk';
         amount: AmountLike;
@@ -574,7 +609,7 @@ export declare class AuthManager implements AuthProvider {
         customSplit?: AmountLike[];
     }
 
-    declare interface ConditionalSwapPreview {
+    export declare interface ConditionalSwapPreview {
         keysetId: string;
         inputs: Proof[];
         outputDataByLabel: Record<string, OutputData[]>;
@@ -773,13 +808,38 @@ export declare class AuthManager implements AuthProvider {
 
      declare interface CtfConditionInfo {
          condition_id: string;
+         threshold?: number;
+         tags?: string[][];
+         announcements?: string[];
          partitions: CtfConditionPartition[];
+         registered_at?: number;
+         condition_type?: string;
+         lo_bound?: number;
+         hi_bound?: number;
+         precision?: number;
+         attestation?: {
+             status: string;
+             winning_outcome?: string | null;
+             attested_at?: number | null;
+         };
      }
 
      declare interface CtfConditionPartition {
+         partition?: string[];
          collateral: string;
          parent_collection_id: string;
          keysets: Record<string, string>;
+         registered_at?: number;
+     }
+
+     declare interface CtfMergeRequest {
+         condition_id: string;
+         inputs: Record<string, Proof[]>;
+         outputs: SerializedBlindedMessage[];
+     }
+
+     declare interface CtfMergeResponse {
+         signatures: SerializedBlindedSignature[];
      }
 
      declare interface CtfSplitRequest {
@@ -829,6 +889,24 @@ export declare class AuthManager implements AuthProvider {
       * @deprecated Use {@link deriveSecretAndBlindingFactor} to derive both values together.
       */
      export declare const deriveBlindingFactor: (seed: Uint8Array, keysetId: string, counter: number) => Uint8Array;
+
+     /**
+      * Derives a NUT-CTF conditional keyset id.
+      *
+      * Mirrors CDK's `Id::v2_from_data_conditional`: build the NUT-02 V2 preimage,
+      * append `|condition_id:<hex>|outcome_collection_id:<hex>`, SHA-256 it, and
+      * prefix the 32-byte digest with the NUT-02 V2 version byte `01`.
+      */
+     export declare function deriveConditionalKeysetId(input: DeriveConditionalKeysetIdInput): string;
+
+     export declare interface DeriveConditionalKeysetIdInput {
+         keys: Keys;
+         input_fee_ppk?: number;
+         final_expiry?: number;
+         unit: string;
+         conditionId: string;
+         outcomeCollectionId: string;
+     }
 
      declare type DerivedSecretAndBlindingFactor = {
          blindingFactor: Uint8Array;
@@ -995,6 +1073,22 @@ export declare class AuthManager implements AuthProvider {
       export declare type G1Point = WeierstrassPoint<bigint>;
 
       export declare type G2Point = WeierstrassPoint<Fp2>;
+
+      declare interface GetConditionalKeysetsQuery {
+          since?: number;
+          limit?: number;
+          active?: boolean;
+      }
+
+      declare interface GetConditionsQuery {
+          since?: number;
+          limit?: number;
+          status?: string[];
+      }
+
+      declare interface GetConditionsResponse {
+          conditions: CtfConditionInfo[];
+      }
 
       /**
        * Get data field value from a secret.
@@ -1546,6 +1640,18 @@ export declare class AuthManager implements AuthProvider {
            */
           ensureKeysetKeys(id: string): Promise<Keyset>;
           /**
+           * Registers a conditional keyset that was discovered through NUT-CTF metadata.
+           *
+           * Conditional keysets are addressable by id but excluded from regular wallet
+           * keyset selection (`getCheapestKeyset` / `getKeysets`).
+           */
+          registerConditionalKeyset(meta: MintKeyset & {
+              conditional: ConditionalKeysetMetadata;
+          }, keys?: MintKeys): Keyset;
+          loadConditionalKeyset(id: string): Promise<Keyset>;
+          getConditionalKeyset(id: string): Keyset;
+          hasConditionalKeyset(id: string): boolean;
+          /**
            * Get list of all keysets for the wallet's unit.
            *
            * @returns Array of Keysets for `this.unit`.
@@ -1618,13 +1724,16 @@ export declare class AuthManager implements AuthProvider {
           private _keys;
           private _input_fee_ppk?;
           private _final_expiry?;
-          constructor(id: string, unit: string, active: boolean, input_fee_ppk?: number, final_expiry?: number);
+          private _conditional?;
+          constructor(id: string, unit: string, active: boolean, input_fee_ppk?: number, final_expiry?: number, conditional?: ConditionalKeysetMetadata);
           get id(): string;
           get unit(): string;
           get isActive(): boolean;
           get fee(): number;
           get expiry(): number | undefined;
           get hasKeys(): boolean;
+          get conditional(): ConditionalKeysetMetadata | undefined;
+          get isConditional(): boolean;
           get hasHexId(): boolean;
           get keys(): Record<number, string>;
           set keys(keys: Record<number, string>);
@@ -1652,6 +1761,10 @@ export declare class AuthManager implements AuthProvider {
            * @returns True if verification succeeds, false otherwise (e.g: no keys or mismatch).
            */
           static verifyKeysetId(keys: MintKeys): boolean;
+          /**
+           * Verifies a NUT-CTF conditional keyset id against its keys and condition metadata.
+           */
+          static verifyConditionalKeysetId(keys: MintKeys, conditional: ConditionalKeysetMetadata): boolean;
           /**
            * Create a Keyset from Mint API DTOs.
            *
@@ -2582,11 +2695,22 @@ export declare class AuthManager implements AuthProvider {
            */
           restore(restorePayload: PostRestorePayload, customRequest?: RequestFn): Promise<PostRestoreResponse>;
           /**
+           * Lists conditional keysets exposed by a NUT-CTF-aware mint.
+           *
+           * Conditional keysets are intentionally excluded from regular NUT-02
+           * `/v1/keysets` discovery. Wallets use this endpoint to bind condition
+           * metadata before verifying condition-derived keyset ids.
+           */
+          getConditionalKeysets(query?: GetConditionalKeysetsQuery, customRequest?: RequestFn): Promise<ConditionalKeysetsResponse>;
+          getConditions(query?: GetConditionsQuery, customRequest?: RequestFn): Promise<GetConditionsResponse>;
+          registerCondition(payload: RegisterConditionRequest, customRequest?: RequestFn): Promise<RegisterConditionResponse>;
+          registerPartition(conditionId: string, payload: RegisterPartitionRequest, customRequest?: RequestFn): Promise<RegisterPartitionResponse>;
+          /**
            * Fetches one conditional-token condition from a CTF-aware mint.
            *
-           * The CTF extension keeps condition partition metadata outside NUT-02
-           * keyset discovery; callers use this to resolve root outcome collection
-           * keysets before building complete-set split outputs.
+           * The CTF extension keeps condition partition metadata outside NUT-02 keyset discovery; callers
+           * use this to resolve root outcome collection keysets before building complete-set split
+           * outputs.
            */
           getCtfCondition(conditionId: string, customRequest?: RequestFn): Promise<CtfConditionInfo>;
           private getCtfConditionResponse;
@@ -2594,17 +2718,17 @@ export declare class AuthManager implements AuthProvider {
           /**
            * Performs a CTF complete-set split.
            *
-           * Inputs are regular collateral proofs and outputs are grouped by outcome
-           * collection. The mint returns one signature array per requested collection.
+           * Inputs are regular collateral proofs and outputs are grouped by outcome collection. The mint
+           * returns one signature array per requested collection.
            */
           ctfSplit(splitPayload: CtfSplitRequest, customRequest?: RequestFn): Promise<CtfSplitResponse>;
+          ctfMerge(mergePayload: CtfMergeRequest, customRequest?: RequestFn): Promise<CtfMergeResponse>;
           /**
            * Redeems witnessed conditional outcome proofs into regular mint proofs.
            *
-           * Callers must attach the oracle witness to each conditional input proof
-           * before invoking this method. Output blinded messages are normalized to the
-           * mint's numeric wire shape so CTF redeem follows the same request encoding
-           * as regular swaps.
+           * Callers must attach the oracle witness to each conditional input proof before invoking this
+           * method. Output blinded messages are normalized to the mint's numeric wire shape so CTF redeem
+           * follows the same request encoding as regular swaps.
            */
           redeemOutcome(redeemPayload: RedeemOutcomeRequest, customRequest?: RequestFn): Promise<RedeemOutcomeResponse>;
           /**
@@ -2977,6 +3101,10 @@ export declare class AuthManager implements AuthProvider {
            * key signs for.
            */
           keys: Keys;
+          /**
+           * NUT-CTF conditional keyset metadata. Present only for conditional keysets.
+           */
+          conditional?: ConditionalKeysetMetadata;
       };
 
       /**
@@ -3003,6 +3131,10 @@ export declare class AuthManager implements AuthProvider {
            * Expiry of the keyset.
            */
           final_expiry?: number;
+          /**
+           * NUT-CTF conditional keyset metadata. Present only for conditional keysets.
+           */
+          conditional?: ConditionalKeysetMetadata;
       };
 
       export declare type MintMethod = 'bolt11' | 'bolt12' | 'onchain';
@@ -4054,14 +4186,14 @@ export declare class AuthManager implements AuthProvider {
               onCountersReserved?: OnCountersReserved;
           };
 
-          declare interface RedeemOutcomeProofsOptions {
+          export declare interface RedeemOutcomeProofsOptions {
               /**
                * Conditional proofs carrying the oracle witness required by the mint.
                */
               inputs: ProofLike[];
               /**
-               * Regular-output blinded messages that will receive the redeemed sats.
-               * Persist these before calling the mint when the caller needs crash recovery.
+               * Regular-output blinded messages that will receive the redeemed sats. Persist these before
+               * calling the mint when the caller needs crash recovery.
                */
               outputs: OutputDataLike[];
           }
@@ -4073,6 +4205,30 @@ export declare class AuthManager implements AuthProvider {
 
           declare interface RedeemOutcomeResponse {
               signatures: SerializedBlindedSignature[];
+          }
+
+          declare interface RegisterConditionRequest {
+              threshold?: number;
+              tags?: string[][];
+              announcements: string[];
+              condition_type?: string;
+              lo_bound?: number;
+              hi_bound?: number;
+              precision?: number;
+          }
+
+          declare interface RegisterConditionResponse {
+              condition_id: string;
+          }
+
+          declare interface RegisterPartitionRequest {
+              collateral: string;
+              partition?: string[];
+              parent_collection_id?: string;
+          }
+
+          declare interface RegisterPartitionResponse {
+              keysets: Record<string, string>;
           }
 
           export declare type RequestArgs = {
@@ -5076,6 +5232,10 @@ export declare class AuthManager implements AuthProvider {
                * Developer-friendly counters API.
                */
               readonly counters: WalletCounters;
+              /**
+               * Optional NUT-CTF wallet facade. Enabled with `new Wallet(mint, { enableCtf: true })`.
+               */
+              readonly ctf: WalletCtf | undefined;
               private _keyChain;
               private _seed;
               private _unit;
@@ -5124,6 +5284,7 @@ export declare class AuthManager implements AuthProvider {
                * @param options.requireSigDleq Fail mint/swap/melt responses when the mint advertises NUT-12
                *   support but omits DLEQ proofs on returned blinded signatures. This is a fail-fast consistency
                *   check, not protection against a malicious mint already consuming inputs or payments.
+               * @param options.enableCtf Enables the optional NUT-CTF facade at `wallet.ctf`.
                * @param options.logger Logger instance, default null logger.
                */
               constructor(mint: Mint | string, options?: {
@@ -5138,8 +5299,10 @@ export declare class AuthManager implements AuthProvider {
                   selectProofs?: SelectProofs;
                   outputDataCreator?: OutputDataCreator;
                   requireSigDleq?: boolean;
+                  enableCtf?: boolean;
                   logger?: Logger;
               });
+              private createCtfFacade;
               private fail;
               private failIf;
               private failIfNullish;
@@ -5437,10 +5600,9 @@ export declare class AuthManager implements AuthProvider {
               /**
                * Swap proofs within one conditional keyset.
                *
-               * CTF conditional keysets are condition-derived and may not be listed as the
-               * wallet's active regular keyset. This method deliberately fetches the
-               * requested/source keyset directly and builds every blinded output against
-               * that same keyset, instead of using regular wallet keyset selection.
+               * CTF conditional keysets are condition-derived and are not listed as regular NUT-02 keysets.
+               * This method loads the conditional keyset through the KeyChain's conditional registry so the
+               * condition-derived keyset id is verified before any blinded output is built.
                */
               prepareConditionalSwap(options: ConditionalSwapOptions): Promise<ConditionalSwapPreview>;
               completeConditionalSwap(preview: ConditionalSwapPreview): Promise<Record<string, Proof[]>>;
@@ -6067,6 +6229,13 @@ export declare class AuthManager implements AuthProvider {
                    * @throws If the CounterSource does not support snapshot()
                    */
                   snapshot(): Promise<Record<string, number>>;
+              }
+
+              export declare interface WalletCtf {
+                  prepareConditionalSwap(options: ConditionalSwapOptions): Promise<ConditionalSwapPreview>;
+                  completeConditionalSwap(preview: ConditionalSwapPreview): Promise<Record<string, Proof[]>>;
+                  swapConditional(options: ConditionalSwapOptions): Promise<Record<string, Proof[]>>;
+                  redeemOutcomeProofs(options: RedeemOutcomeProofsOptions): Promise<Proof[]>;
               }
 
               export declare class WalletEvents {
