@@ -893,9 +893,9 @@ export declare class AuthManager implements AuthProvider {
      /**
       * Derives a NUT-CTF conditional keyset id.
       *
-      * Mirrors CDK's `Id::v2_from_data_conditional`: build the NUT-02 V2 preimage,
-      * append `|condition_id:<hex>|outcome_collection_id:<hex>`, SHA-256 it, and
-      * prefix the 32-byte digest with the NUT-02 V2 version byte `01`.
+      * Mirrors CDK's `Id::v2_from_data_conditional`: build the NUT-02 V2 preimage, append
+      * `|condition_id:<hex>|outcome_collection_id:<hex>`, SHA-256 it, and prefix the 32-byte digest with
+      * the NUT-02 V2 version byte `01`.
       */
      export declare function deriveConditionalKeysetId(input: DeriveConditionalKeysetIdInput): string;
 
@@ -1642,8 +1642,8 @@ export declare class AuthManager implements AuthProvider {
           /**
            * Registers a conditional keyset that was discovered through NUT-CTF metadata.
            *
-           * Conditional keysets are addressable by id but excluded from regular wallet
-           * keyset selection (`getCheapestKeyset` / `getKeysets`).
+           * Conditional keysets are addressable by id but excluded from regular wallet keyset selection
+           * (`getCheapestKeyset` / `getKeysets`).
            */
           registerConditionalKeyset(meta: MintKeyset & {
               conditional: ConditionalKeysetMetadata;
@@ -2697,9 +2697,9 @@ export declare class AuthManager implements AuthProvider {
           /**
            * Lists conditional keysets exposed by a NUT-CTF-aware mint.
            *
-           * Conditional keysets are intentionally excluded from regular NUT-02
-           * `/v1/keysets` discovery. Wallets use this endpoint to bind condition
-           * metadata before verifying condition-derived keyset ids.
+           * Conditional keysets are intentionally excluded from regular NUT-02 `/v1/keysets` discovery.
+           * Wallets use this endpoint to bind condition metadata before verifying condition-derived keyset
+           * ids.
            */
           getConditionalKeysets(query?: GetConditionalKeysetsQuery, customRequest?: RequestFn): Promise<ConditionalKeysetsResponse>;
           getConditions(query?: GetConditionsQuery, customRequest?: RequestFn): Promise<GetConditionsResponse>;
