@@ -185,6 +185,75 @@ describe('KeyChain initialization', () => {
     expect(() => keyChain.getCheapestKeyset()).toThrow('No active keyset found for unit: sat');
   });
 
+  test('should not use a registered conditional keyset as the cheapest regular keyset', () => {
+    const keyChain = new KeyChain(mint, unit);
+    keyChain.registerConditionalKeyset(
+      {
+        id: CTF_KEYSET_ID,
+        unit,
+        active: true,
+        input_fee_ppk: 0,
+        final_expiry: 1754296607,
+        conditional: {
+          conditionId: CTF_CONDITION_ID,
+          outcomeCollection: 'YES',
+          outcomeCollectionId: CTF_OUTCOME_COLLECTION_ID,
+        },
+      },
+      {
+        ...DUMMY_TEST_KEYS,
+        id: CTF_KEYSET_ID,
+        conditional: {
+          conditionId: CTF_CONDITION_ID,
+          outcomeCollection: 'YES',
+          outcomeCollectionId: CTF_OUTCOME_COLLECTION_ID,
+        },
+      },
+    );
+
+    expect(() => keyChain.getCheapestKeyset()).toThrow('No active keyset found for unit: sat');
+  });
+
+  test('should reject tampered keys for a discovered conditional keyset', async () => {
+    server.use(
+      http.get(mintUrl + '/v1/conditional_keysets', () =>
+        HttpResponse.json({
+          keysets: [
+            {
+              id: CTF_KEYSET_ID,
+              unit,
+              active: true,
+              input_fee_ppk: 0,
+              condition_id: CTF_CONDITION_ID,
+              outcome_collection: 'YES',
+              outcome_collection_id: CTF_OUTCOME_COLLECTION_ID,
+              registered_at: 1_700_000_000,
+            },
+          ],
+        }),
+      ),
+      http.get(mintUrl + '/v1/keys/' + CTF_KEYSET_ID, () =>
+        HttpResponse.json({
+          keysets: [
+            {
+              ...DUMMY_TEST_KEYS,
+              id: CTF_KEYSET_ID,
+              keys: {
+                ...DUMMY_TEST_KEYS.keys,
+                1: PUBKEYS['2'],
+              },
+            },
+          ],
+        }),
+      ),
+    );
+
+    const keyChain = new KeyChain(mint, unit);
+    await expect(keyChain.loadConditionalKeyset(CTF_KEYSET_ID)).rejects.toThrow(
+      'Conditional keyset verification failed',
+    );
+  });
+
   test('should remove keys if verification fails', async () => {
     // Create mismatched data by changing ID but keeping keys the same (derived ID won't match)
     const mismatchedKeysetResp = JSON.parse(JSON.stringify(dummyKeysetResp));

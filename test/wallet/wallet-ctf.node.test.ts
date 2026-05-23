@@ -96,6 +96,20 @@ describe('Wallet.swapConditional', () => {
     expect(Amount.sum(result.change.map((proof) => proof.amount))).toEqual(Amount.from(36));
   });
 
+  test('rejects mixed input keysets before preparing conditional outputs', async () => {
+    const wallet = new Wallet(mint);
+
+    await expect(
+      wallet.swapConditional({
+        inputs: [
+          conditionalProof(100, 'conditional-input-a'),
+          { ...conditionalProof(36, 'conditional-input-b'), id: '01' + 'bb'.repeat(32) },
+        ],
+        outputs: [{ label: 'lock', kind: 'random', amount: 136 }],
+      }),
+    ).rejects.toThrow(/inputs must use one keyset/);
+  });
+
   test('can create P2PK-locked conditional outputs and unlocked same-keyset change', async () => {
     server.use(
       http.get(mintUrl + '/v1/conditional_keysets', () =>

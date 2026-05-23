@@ -9,12 +9,12 @@
 // ==========================
 // Public API Surface
 // ==========================
-export { Mint, Mint as CashuMint } from './mint';
+export { Mint } from './mint';
 export { KeyChain } from './wallet/KeyChain';
 export { Keyset } from './wallet/Keyset';
 export { P2PKBuilder } from './wallet/P2PKBuilder';
 export { type SelectProofs, selectProofsRGLI } from './wallet/SelectProofs';
-export { Wallet, Wallet as CashuWallet } from './wallet/Wallet';
+export { Wallet } from './wallet/Wallet';
 export type {
   ConditionalSwapOptions,
   ConditionalSwapOutputGroup,

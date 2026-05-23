@@ -340,7 +340,7 @@ function tokenFromTemplate(template: TokenV4Template): Token {
  * @param keysets Array of full keyset ID strings, eg: from `KeyChain.getAllKeysetIds()`
  * @returns Cashu token object.
  */
-export function getDecodedToken(tokenString: string, keysetIds: readonly string[] = []): Token {
+export function getDecodedToken(tokenString: string, keysetIds: readonly string[]): Token {
   const tokenStr = removePrefix(tokenString);
   const token: Token = handleTokens(tokenStr);
   token.proofs = mapShortKeysetIds(token.proofs, keysetIds);
