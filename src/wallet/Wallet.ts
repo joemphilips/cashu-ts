@@ -135,6 +135,13 @@ export interface RedeemOutcomeProofsOptions {
   outputs: OutputDataLike[];
 }
 
+export interface WalletCtf {
+  prepareConditionalSwap(options: ConditionalSwapOptions): Promise<ConditionalSwapPreview>;
+  completeConditionalSwap(preview: ConditionalSwapPreview): Promise<Record<string, Proof[]>>;
+  swapConditional(options: ConditionalSwapOptions): Promise<Record<string, Proof[]>>;
+  redeemOutcomeProofs(options: RedeemOutcomeProofsOptions): Promise<Proof[]>;
+}
+
 /**
  * Class that represents a Cashu wallet.
  *
@@ -184,6 +191,10 @@ class Wallet {
    * Developer-friendly counters API.
    */
   public readonly counters: WalletCounters;
+  /**
+   * Optional NUT-CTF wallet facade. Enabled with `new Wallet(mint, { enableCtf: true })`.
+   */
+  public readonly ctf: WalletCtf | undefined;
   private _keyChain: KeyChain;
   private _seed: Uint8Array | undefined = undefined;
   private _unit = 'sat';
@@ -233,6 +244,7 @@ class Wallet {
    * @param options.requireSigDleq Fail mint/swap/melt responses when the mint advertises NUT-12
    *   support but omits DLEQ proofs on returned blinded signatures. This is a fail-fast consistency
    *   check, not protection against a malicious mint already consuming inputs or payments.
+   * @param options.enableCtf Enables the optional NUT-CTF facade at `wallet.ctf`.
    * @param options.logger Logger instance, default null logger.
    */
   constructor(
@@ -249,6 +261,7 @@ class Wallet {
       selectProofs?: SelectProofs; // optional override
       outputDataCreator?: OutputDataCreator;
       requireSigDleq?: boolean;
+      enableCtf?: boolean;
       logger?: Logger;
     },
   ) {
@@ -283,6 +296,16 @@ class Wallet {
     this._keyChain = new KeyChain(this.mint, this._unit);
     this._denominationTarget = options?.denominationTarget ?? this._denominationTarget;
     this._requireSigDleq = options?.requireSigDleq ?? this._requireSigDleq;
+    this.ctf = options?.enableCtf ? this.createCtfFacade() : undefined;
+  }
+
+  private createCtfFacade(): WalletCtf {
+    return {
+      prepareConditionalSwap: (options) => this.prepareConditionalSwap(options),
+      completeConditionalSwap: (preview) => this.completeConditionalSwap(preview),
+      swapConditional: (options) => this.swapConditional(options),
+      redeemOutcomeProofs: (options) => this.redeemOutcomeProofs(options),
+    };
   }
 
   // Convenience wrappers for "log and throw"
@@ -1368,10 +1391,9 @@ class Wallet {
   /**
    * Swap proofs within one conditional keyset.
    *
-   * CTF conditional keysets are condition-derived and may not be listed as the wallet's active
-   * regular keyset. This method deliberately fetches the requested/source keyset directly and
-   * builds every blinded output against that same keyset, instead of using regular wallet keyset
-   * selection.
+   * CTF conditional keysets are condition-derived and are not listed as regular NUT-02 keysets.
+   * This method loads the conditional keyset through the KeyChain's conditional registry so the
+   * condition-derived keyset id is verified before any blinded output is built.
    */
   async prepareConditionalSwap(options: ConditionalSwapOptions): Promise<ConditionalSwapPreview> {
     const inputs = normalizeProofAmounts(options.inputs);
@@ -1393,11 +1415,7 @@ class Wallet {
       );
     }
 
-    const keysetResponse = await this.mint.getKeys(keysetId);
-    const keyset = keysetResponse.keysets.find((candidate) => candidate.id === keysetId);
-    if (!keyset || Object.keys(keyset.keys).length === 0) {
-      throw new CTSError(`Mint returned no keys for conditional keyset ${keysetId}`);
-    }
+    const keyset = await this._keyChain.loadConditionalKeyset(keysetId);
 
     const seenLabels = new Set<string>();
     let outputTotal = Amount.zero();
@@ -1428,7 +1446,7 @@ class Wallet {
       };
     });
 
-    const fee = Amount.from(Math.ceil((inputs.length * (keyset.input_fee_ppk ?? 0)) / 1000));
+    const fee = Amount.from(Math.ceil((inputs.length * keyset.fee) / 1000));
     const expectedOutputTotal = sumProofs(inputs).subtract(fee);
     if (!outputTotal.equals(expectedOutputTotal)) {
       throw new CTSError(
@@ -1461,11 +1479,7 @@ class Wallet {
     );
     this.validateReturnedSignatures(signatures, flatOutputs);
 
-    const keysetResponse = await this.mint.getKeys(preview.keysetId);
-    const keyset = keysetResponse.keysets.find((candidate) => candidate.id === preview.keysetId);
-    if (!keyset || Object.keys(keyset.keys).length === 0) {
-      throw new CTSError(`Mint returned no keys for conditional keyset ${preview.keysetId}`);
-    }
+    const keyset = this._keyChain.getConditionalKeyset(preview.keysetId);
 
     const result: Record<string, Proof[]> = {};
     let cursor = 0;
