@@ -1,5 +1,5 @@
 import { HttpResponse, http } from 'msw';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import { Amount, Mint, OutputData, Wallet, type Proof } from '../../src';
 import { DUMMY_TEST_KEYS } from '../consts';
@@ -108,6 +108,55 @@ describe('Wallet.swapConditional', () => {
         outputs: [{ label: 'lock', kind: 'random', amount: 136 }],
       }),
     ).rejects.toThrow(/inputs must use one keyset/);
+  });
+
+  test('rejects generated conditional outputs with a mismatched keyset before mint submission', async () => {
+    let swapCalled = false;
+    server.use(
+      http.get(mintUrl + '/v1/conditional_keysets', () =>
+        HttpResponse.json({
+          keysets: [
+            {
+              id: CONDITIONAL_KEYSET_ID,
+              unit: 'sat',
+              active: true,
+              input_fee_ppk: 0,
+              final_expiry: 1754296607,
+              condition_id: CONDITION_ID,
+              outcome_collection: 'YES',
+              outcome_collection_id: OUTCOME_COLLECTION_ID,
+              registered_at: 1_700_000_000,
+            },
+          ],
+        }),
+      ),
+      http.get(mintUrl + '/v1/keys/' + CONDITIONAL_KEYSET_ID, () =>
+        HttpResponse.json({ keysets: [conditionalKeys()] }),
+      ),
+      http.post(mintUrl + '/v1/swap', () => {
+        swapCalled = true;
+        return HttpResponse.json({ signatures: [] });
+      }),
+    );
+    const mismatchedKeysetId = '01' + 'dd'.repeat(32);
+    const createRandomDataSpy = vi
+      .spyOn(OutputData, 'createRandomData')
+      .mockReturnValue([OutputData.createSingleRandomData(136, mismatchedKeysetId)]);
+    const wallet = new Wallet(mint);
+
+    try {
+      await expect(
+        wallet.swapConditional({
+          inputs: [conditionalProof(136, 'conditional-input')],
+          outputs: [{ label: 'lock', kind: 'random', amount: 136 }],
+        }),
+      ).rejects.toThrow(
+        `prepareConditionalSwap output lock uses keyset ${mismatchedKeysetId}; expected ${CONDITIONAL_KEYSET_ID}`,
+      );
+      expect(swapCalled).toBe(false);
+    } finally {
+      createRandomDataSpy.mockRestore();
+    }
   });
 
   test('can create P2PK-locked conditional outputs and unlocked same-keyset change', async () => {

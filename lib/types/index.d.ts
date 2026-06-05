@@ -556,7 +556,7 @@ export declare class AuthManager implements AuthProvider {
 
     export declare function computeMessageDigest(message: string, asHex: true): string;
 
-    declare interface ConditionalKeysetInfo {
+    export declare interface ConditionalKeysetInfo {
         id: string;
         unit: string;
         active: boolean;
@@ -587,7 +587,7 @@ export declare class AuthManager implements AuthProvider {
         registeredAt?: number;
     }
 
-    declare interface ConditionalKeysetsResponse {
+    export declare interface ConditionalKeysetsResponse {
         keysets: ConditionalKeysetInfo[];
     }
 
@@ -806,7 +806,7 @@ export declare class AuthManager implements AuthProvider {
 
      /* Excluded from this release type: createSecretAndBlindingFactorDeriver */
 
-     declare interface CtfConditionInfo {
+     export declare interface CtfConditionInfo {
          condition_id: string;
          threshold?: number;
          tags?: string[][];
@@ -824,7 +824,7 @@ export declare class AuthManager implements AuthProvider {
          };
      }
 
-     declare interface CtfConditionPartition {
+     export declare interface CtfConditionPartition {
          partition?: string[];
          collateral: string;
          parent_collection_id: string;
@@ -832,23 +832,14 @@ export declare class AuthManager implements AuthProvider {
          registered_at?: number;
      }
 
-     declare interface CtfMergeRequest {
+     export declare interface CtfConvertRequest {
          condition_id: string;
+         parent_collection_id?: string;
          inputs: Record<string, Proof[]>;
-         outputs: SerializedBlindedMessage[];
-     }
-
-     declare interface CtfMergeResponse {
-         signatures: SerializedBlindedSignature[];
-     }
-
-     declare interface CtfSplitRequest {
-         condition_id: string;
-         inputs: Proof[];
          outputs: Record<string, SerializedBlindedMessage[]>;
      }
 
-     declare interface CtfSplitResponse {
+     export declare interface CtfConvertResponse {
          signatures: Record<string, SerializedBlindedSignature[]>;
      }
 
@@ -1074,19 +1065,19 @@ export declare class AuthManager implements AuthProvider {
 
       export declare type G2Point = WeierstrassPoint<Fp2>;
 
-      declare interface GetConditionalKeysetsQuery {
+      export declare interface GetConditionalKeysetsQuery {
           since?: number;
           limit?: number;
           active?: boolean;
       }
 
-      declare interface GetConditionsQuery {
+      export declare interface GetConditionsQuery {
           since?: number;
           limit?: number;
           status?: string[];
       }
 
-      declare interface GetConditionsResponse {
+      export declare interface GetConditionsResponse {
           conditions: CtfConditionInfo[];
       }
 
@@ -2716,13 +2707,9 @@ export declare class AuthManager implements AuthProvider {
           private getCtfConditionResponse;
           private isConditionNotFound;
           /**
-           * Performs a CTF complete-set split.
-           *
-           * Inputs are regular collateral proofs and outputs are grouped by outcome collection. The mint
-           * returns one signature array per requested collection.
+           * Performs a CTF payoff-preserving convert.
            */
-          ctfSplit(splitPayload: CtfSplitRequest, customRequest?: RequestFn): Promise<CtfSplitResponse>;
-          ctfMerge(mergePayload: CtfMergeRequest, customRequest?: RequestFn): Promise<CtfMergeResponse>;
+          ctfConvert(convertPayload: CtfConvertRequest, customRequest?: RequestFn): Promise<CtfConvertResponse>;
           /**
            * Redeems witnessed conditional outcome proofs into regular mint proofs.
            *
@@ -4198,16 +4185,16 @@ export declare class AuthManager implements AuthProvider {
               outputs: OutputDataLike[];
           }
 
-          declare interface RedeemOutcomeRequest {
+          export declare interface RedeemOutcomeRequest {
               inputs: Proof[];
               outputs: SerializedBlindedMessage[];
           }
 
-          declare interface RedeemOutcomeResponse {
+          export declare interface RedeemOutcomeResponse {
               signatures: SerializedBlindedSignature[];
           }
 
-          declare interface RegisterConditionRequest {
+          export declare interface RegisterConditionRequest {
               threshold?: number;
               tags?: string[][];
               announcements: string[];
@@ -4217,17 +4204,17 @@ export declare class AuthManager implements AuthProvider {
               precision?: number;
           }
 
-          declare interface RegisterConditionResponse {
+          export declare interface RegisterConditionResponse {
               condition_id: string;
           }
 
-          declare interface RegisterPartitionRequest {
+          export declare interface RegisterPartitionRequest {
               collateral: string;
               partition?: string[];
               parent_collection_id?: string;
           }
 
-          declare interface RegisterPartitionResponse {
+          export declare interface RegisterPartitionResponse {
               keysets: Record<string, string>;
           }
 
