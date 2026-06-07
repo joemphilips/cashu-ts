@@ -1980,6 +1980,8 @@ export interface RegisterConditionRequest {
     // (undocumented)
     outcome_collections?: string[];
     // (undocumented)
+    outputs?: SerializedBlindedMessage[];
+    // (undocumented)
     precision?: number;
     // (undocumented)
     tags?: string[][];
@@ -1989,6 +1991,8 @@ export interface RegisterConditionRequest {
 
 // @public (undocumented)
 export interface RegisterConditionResponse {
+    // (undocumented)
+    change?: SerializedBlindedSignature[];
     // (undocumented)
     condition_id: string;
     // (undocumented)

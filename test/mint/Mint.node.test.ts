@@ -1031,6 +1031,11 @@ describe('Mint normalization', () => {
       secret: 'fee-secret',
       C: '02'.padEnd(66, '1'),
     };
+    const changeOutput = {
+      id: '00bd033559de27d0',
+      amount: 1,
+      B_: '02'.padEnd(66, '2'),
+    };
     const seen: ReqArgs[] = [];
     const requestSpy = vi.fn(async (options: ReqArgs) => {
       seen.push(options);
@@ -1043,8 +1048,13 @@ describe('Mint normalization', () => {
         collateral: 'sat',
         outcome_collections: ['YES', 'NO'],
         fee: [feeProof],
+        outputs: [changeOutput],
       });
-      return { condition_id: conditionId, keysets: { YES: 'keyset-yes', NO: 'keyset-no' } };
+      return {
+        condition_id: conditionId,
+        keysets: { YES: 'keyset-yes', NO: 'keyset-no' },
+        change: [{ amount: 1, C_: '02change', id: '00bd033559de27d0' }],
+      };
     }) as RequestFn;
     const mint = new Mint(mintUrl, { customRequest: requestSpy });
 
@@ -1056,10 +1066,12 @@ describe('Mint normalization', () => {
         collateral: 'sat',
         outcome_collections: ['YES', 'NO'],
         fee: [feeProof],
+        outputs: [changeOutput],
       }),
     ).resolves.toEqual({
       condition_id: conditionId,
       keysets: { YES: 'keyset-yes', NO: 'keyset-no' },
+      change: [{ amount: Amount.from(1), C_: '02change', id: '00bd033559de27d0' }],
     });
     expect(seen).toHaveLength(1);
   });

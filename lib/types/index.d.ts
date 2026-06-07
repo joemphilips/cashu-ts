@@ -4191,6 +4191,7 @@ export declare class AuthManager implements AuthProvider {
               collateral?: string;
               outcome_collections?: string[];
               fee?: Proof[];
+              outputs?: SerializedBlindedMessage[];
               condition_type?: string;
               lo_bound?: number;
               hi_bound?: number;
@@ -4200,6 +4201,7 @@ export declare class AuthManager implements AuthProvider {
           export declare interface RegisterConditionResponse {
               condition_id: string;
               keysets: Record<string, string>;
+              change?: SerializedBlindedSignature[];
           }
 
           export declare type RequestArgs = {
