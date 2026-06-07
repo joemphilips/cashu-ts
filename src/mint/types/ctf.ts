@@ -10,6 +10,13 @@ export interface CtfConditionInfo {
   tags?: string[][];
   announcements?: string[];
   keysets: Record<string, string>;
+  partitions?: Array<{
+    partition?: string[];
+    collateral?: string;
+    parent_collection_id?: string;
+    keysets?: Record<string, string>;
+    registered_at?: number;
+  }>;
   registered_at?: number;
   condition_type?: string;
   lo_bound?: number;

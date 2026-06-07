@@ -988,6 +988,35 @@ describe('Mint normalization', () => {
     expect(requestSpy).toHaveBeenCalledTimes(2);
   });
 
+  it('getCtfCondition normalizes partition keysets from current mint responses', async () => {
+    const conditionId = 'b'.repeat(64);
+    const mint = new Mint(mintUrl, {
+      customRequest: makeRequest({
+        condition_id: conditionId,
+        partitions: [
+          {
+            partition: ['A', 'B', 'C'],
+            collateral: 'sat',
+            keysets: {
+              A: 'keyset-a',
+              B: 'keyset-b',
+              C: 'keyset-c',
+            },
+          },
+        ],
+      }),
+    });
+
+    const condition = await mint.getCtfCondition(conditionId);
+
+    expect(condition.condition_id).toBe(conditionId);
+    expect(condition.keysets).toEqual({
+      A: 'keyset-a',
+      B: 'keyset-b',
+      C: 'keyset-c',
+    });
+  });
+
   it('lists conditional keysets with query parameters and normalizes metadata numbers', async () => {
     const requestSpy = vi.fn(async (options: ReqArgs) => {
       expect(options.endpoint).toBe(

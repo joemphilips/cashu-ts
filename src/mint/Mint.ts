@@ -1057,9 +1057,11 @@ class Mint {
     const normalizedConditionId = conditionId.toLowerCase();
     const data = await this.getCtfConditionResponse(normalizedConditionId, customRequest);
     const dataObject = data as Record<string, unknown>;
-    const condition = isObj(dataObject.condition)
-      ? (dataObject.condition as CtfConditionInfo)
-      : (data as CtfConditionInfo);
+    const condition = this.normalizeCtfCondition(
+      isObj(dataObject.condition)
+        ? (dataObject.condition as CtfConditionInfo)
+        : (data as CtfConditionInfo),
+    );
     if (
       !isObj(condition) ||
       condition.condition_id?.toLowerCase() !== normalizedConditionId ||
@@ -1069,6 +1071,21 @@ class Mint {
       throw new CTSError(`Mint did not return condition ${normalizedConditionId}`);
     }
     return condition;
+  }
+
+  private normalizeCtfCondition(condition: CtfConditionInfo): CtfConditionInfo {
+    if (isObj(condition.keysets)) return condition;
+    if (!Array.isArray(condition.partitions)) return condition;
+
+    const keysets: Record<string, string> = {};
+    for (const partition of condition.partitions) {
+      if (!isObj(partition) || !isObj(partition.keysets)) continue;
+      for (const [collection, keysetId] of Object.entries(partition.keysets)) {
+        if (typeof keysetId === 'string') keysets[collection] = keysetId;
+      }
+    }
+
+    return { ...condition, keysets };
   }
 
   private async getCtfConditionResponse(
