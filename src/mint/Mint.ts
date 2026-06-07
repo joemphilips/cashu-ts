@@ -1224,6 +1224,9 @@ class Mint {
       this._logger.error('Invalid response from mint...', { data, op: 'registerCondition' });
       throw new CTSError('Invalid response from mint');
     }
+    if (Array.isArray(data.change)) {
+      data.change = this.normalizeSignatureAmounts(data.change);
+    }
     return data;
   }
 
