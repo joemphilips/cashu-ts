@@ -456,9 +456,9 @@ export interface CtfConditionInfo {
     // (undocumented)
     hi_bound?: number;
     // (undocumented)
-    lo_bound?: number;
+    keysets: Record<string, string>;
     // (undocumented)
-    partitions: CtfConditionPartition[];
+    lo_bound?: number;
     // (undocumented)
     precision?: number;
     // (undocumented)
@@ -467,20 +467,6 @@ export interface CtfConditionInfo {
     tags?: string[][];
     // (undocumented)
     threshold?: number;
-}
-
-// @public (undocumented)
-export interface CtfConditionPartition {
-    // (undocumented)
-    collateral: string;
-    // (undocumented)
-    keysets: Record<string, string>;
-    // (undocumented)
-    parent_collection_id: string;
-    // (undocumented)
-    partition?: string[];
-    // (undocumented)
-    registered_at?: number;
 }
 
 // @public (undocumented)
@@ -1204,8 +1190,6 @@ class Mint {
     redeemOutcome(redeemPayload: RedeemOutcomeRequest, customRequest?: RequestFn): Promise<RedeemOutcomeResponse>;
     // (undocumented)
     registerCondition(payload: RegisterConditionRequest, customRequest?: RequestFn): Promise<RegisterConditionResponse>;
-    // (undocumented)
-    registerPartition(conditionId: string, payload: RegisterPartitionRequest, customRequest?: RequestFn): Promise<RegisterPartitionResponse>;
     restore(restorePayload: PostRestorePayload, customRequest?: RequestFn): Promise<PostRestoreResponse>;
     setMintInfo(mintInfo: MintInfo | GetInfoResponse): void;
     swap(swapPayload: SwapRequest, customRequest?: RequestFn): Promise<SwapResponse>;
@@ -1984,11 +1968,15 @@ export interface RegisterConditionRequest {
     // (undocumented)
     announcements: string[];
     // (undocumented)
+    collateral?: string;
+    // (undocumented)
     condition_type?: string;
     // (undocumented)
     hi_bound?: number;
     // (undocumented)
     lo_bound?: number;
+    // (undocumented)
+    outcome_collections?: string[];
     // (undocumented)
     precision?: number;
     // (undocumented)
@@ -2001,20 +1989,6 @@ export interface RegisterConditionRequest {
 export interface RegisterConditionResponse {
     // (undocumented)
     condition_id: string;
-}
-
-// @public (undocumented)
-export interface RegisterPartitionRequest {
-    // (undocumented)
-    collateral: string;
-    // (undocumented)
-    parent_collection_id?: string;
-    // (undocumented)
-    partition?: string[];
-}
-
-// @public (undocumented)
-export interface RegisterPartitionResponse {
     // (undocumented)
     keysets: Record<string, string>;
 }

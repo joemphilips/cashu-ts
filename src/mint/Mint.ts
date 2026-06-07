@@ -71,8 +71,6 @@ import type {
   GetConditionsResponse,
   RegisterConditionRequest,
   RegisterConditionResponse,
-  RegisterPartitionRequest,
-  RegisterPartitionResponse,
 } from './types';
 
 /**
@@ -1043,35 +1041,11 @@ class Mint {
     return data;
   }
 
-  async registerPartition(
-    conditionId: string,
-    payload: RegisterPartitionRequest,
-    customRequest?: RequestFn,
-  ): Promise<RegisterPartitionResponse> {
-    if (!/^[0-9a-fA-F]{64}$/.test(conditionId)) {
-      throw new CTSError(
-        'conditionId must be a 64-character hex string for CTF partition registration',
-      );
-    }
-    const data = await this.requestWithAuth<RegisterPartitionResponse>(
-      'POST',
-      `/v1/conditions/${conditionId.toLowerCase()}/partitions`,
-      { requestBody: payload as unknown as Record<string, unknown> },
-      customRequest,
-    );
-    if (!isObj(data) || !isObj(data.keysets)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'registerPartition' });
-      throw new CTSError('Invalid response from mint');
-    }
-    return data;
-  }
-
   /**
    * Fetches one conditional-token condition from a CTF-aware mint.
    *
-   * The CTF extension keeps condition partition metadata outside NUT-02 keyset discovery; callers
-   * use this to resolve root outcome collection keysets before building complete-set split
-   * outputs.
+   * The CTF extension keeps condition keyset metadata outside NUT-02 keyset discovery; callers use
+   * this to resolve root outcome collection keysets before building complete-set split outputs.
    */
   async getCtfCondition(conditionId: string, customRequest?: RequestFn): Promise<CtfConditionInfo> {
     if (!/^[0-9a-fA-F]{64}$/.test(conditionId)) {
@@ -1086,7 +1060,7 @@ class Mint {
     if (
       !isObj(condition) ||
       condition.condition_id?.toLowerCase() !== normalizedConditionId ||
-      !Array.isArray(condition.partitions)
+      !isObj(condition.keysets)
     ) {
       this._logger.error('Invalid response from mint...', { data, op: 'getCtfCondition' });
       throw new CTSError(`Mint did not return condition ${normalizedConditionId}`);

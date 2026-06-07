@@ -971,13 +971,7 @@ describe('Mint normalization', () => {
         conditions: [
           {
             condition_id: conditionId,
-            partitions: [
-              {
-                collateral: 'sat',
-                parent_collection_id: '0'.repeat(64),
-                keysets: { YES: 'keyset-yes', NO: 'keyset-no' },
-              },
-            ],
+            keysets: { YES: 'keyset-yes', NO: 'keyset-no' },
           },
         ],
       };
@@ -987,7 +981,7 @@ describe('Mint normalization', () => {
     const condition = await mint.getCtfCondition(conditionId);
 
     expect(condition.condition_id).toBe(conditionId);
-    expect(condition.partitions[0].keysets).toEqual({
+    expect(condition.keysets).toEqual({
       YES: 'keyset-yes',
       NO: 'keyset-no',
     });
@@ -1029,18 +1023,21 @@ describe('Mint normalization', () => {
     expect(response.keysets[0].registered_at).toBe(1_700_000_001);
   });
 
-  it('wraps condition registration and partition endpoints', async () => {
+  it('wraps condition registration with requested outcome collections', async () => {
     const conditionId = 'd'.repeat(64);
     const seen: ReqArgs[] = [];
     const requestSpy = vi.fn(async (options: ReqArgs) => {
       seen.push(options);
-      if (options.endpoint === `${mintUrl}/v1/conditions`) {
-        expect(options.method).toBe('POST');
-        return { condition_id: conditionId };
-      }
-      expect(options.endpoint).toBe(`${mintUrl}/v1/conditions/${conditionId}/partitions`);
+      expect(options.endpoint).toBe(`${mintUrl}/v1/conditions`);
       expect(options.method).toBe('POST');
-      return { keysets: { YES: 'keyset-yes', NO: 'keyset-no' } };
+      expect(options.requestBody).toEqual({
+        threshold: 1,
+        tags: [['description', 'question']],
+        announcements: ['abcd'],
+        collateral: 'sat',
+        outcome_collections: ['YES', 'NO'],
+      });
+      return { condition_id: conditionId, keysets: { YES: 'keyset-yes', NO: 'keyset-no' } };
     }) as RequestFn;
     const mint = new Mint(mintUrl, { customRequest: requestSpy });
 
@@ -1049,15 +1046,14 @@ describe('Mint normalization', () => {
         threshold: 1,
         tags: [['description', 'question']],
         announcements: ['abcd'],
-      }),
-    ).resolves.toEqual({ condition_id: conditionId });
-    await expect(
-      mint.registerPartition(conditionId, {
         collateral: 'sat',
-        partition: ['YES', 'NO'],
+        outcome_collections: ['YES', 'NO'],
       }),
-    ).resolves.toEqual({ keysets: { YES: 'keyset-yes', NO: 'keyset-no' } });
-    expect(seen).toHaveLength(2);
+    ).resolves.toEqual({
+      condition_id: conditionId,
+      keysets: { YES: 'keyset-yes', NO: 'keyset-no' },
+    });
+    expect(seen).toHaveLength(1);
   });
 
   it('ctfConvert posts grouped inputs and outputs and normalizes signatures', async () => {
@@ -1091,9 +1087,7 @@ describe('Mint normalization', () => {
       parent_collection_id: 'parent',
       inputs: { YES: [] },
       outputs: {
-        NO: [
-          { id: '00bd033559de27d0', amount: Amount.from(100), B_: '02'.padEnd(66, 'a') },
-        ],
+        NO: [{ id: '00bd033559de27d0', amount: Amount.from(100), B_: '02'.padEnd(66, 'a') }],
       },
     });
 
