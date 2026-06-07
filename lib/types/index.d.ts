@@ -812,6 +812,13 @@ export declare class AuthManager implements AuthProvider {
          tags?: string[][];
          announcements?: string[];
          keysets: Record<string, string>;
+         partitions?: Array<{
+             partition?: string[];
+             collateral?: string;
+             parent_collection_id?: string;
+             keysets?: Record<string, string>;
+             registered_at?: number;
+         }>;
          registered_at?: number;
          condition_type?: string;
          lo_bound?: number;
@@ -2694,6 +2701,7 @@ export declare class AuthManager implements AuthProvider {
            * this to resolve root outcome collection keysets before building complete-set split outputs.
            */
           getCtfCondition(conditionId: string, customRequest?: RequestFn): Promise<CtfConditionInfo>;
+          private normalizeCtfCondition;
           private getCtfConditionResponse;
           private isConditionNotFound;
           /**
