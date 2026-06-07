@@ -811,7 +811,7 @@ export declare class AuthManager implements AuthProvider {
          threshold?: number;
          tags?: string[][];
          announcements?: string[];
-         partitions: CtfConditionPartition[];
+         keysets: Record<string, string>;
          registered_at?: number;
          condition_type?: string;
          lo_bound?: number;
@@ -822,14 +822,6 @@ export declare class AuthManager implements AuthProvider {
              winning_outcome?: string | null;
              attested_at?: number | null;
          };
-     }
-
-     export declare interface CtfConditionPartition {
-         partition?: string[];
-         collateral: string;
-         parent_collection_id: string;
-         keysets: Record<string, string>;
-         registered_at?: number;
      }
 
      export declare interface CtfConvertRequest {
@@ -2695,11 +2687,10 @@ export declare class AuthManager implements AuthProvider {
           getConditionalKeysets(query?: GetConditionalKeysetsQuery, customRequest?: RequestFn): Promise<ConditionalKeysetsResponse>;
           getConditions(query?: GetConditionsQuery, customRequest?: RequestFn): Promise<GetConditionsResponse>;
           registerCondition(payload: RegisterConditionRequest, customRequest?: RequestFn): Promise<RegisterConditionResponse>;
-          registerPartition(conditionId: string, payload: RegisterPartitionRequest, customRequest?: RequestFn): Promise<RegisterPartitionResponse>;
           /**
            * Fetches one conditional-token condition from a CTF-aware mint.
            *
-           * The CTF extension keeps condition partition metadata outside NUT-02 keyset discovery; callers
+          * The CTF extension keeps condition keyset metadata outside NUT-02 keyset discovery; callers
            * use this to resolve root outcome collection keysets before building complete-set split
            * outputs.
            */
@@ -4198,6 +4189,8 @@ export declare class AuthManager implements AuthProvider {
               threshold?: number;
               tags?: string[][];
               announcements: string[];
+              collateral?: string;
+              outcome_collections?: string[];
               condition_type?: string;
               lo_bound?: number;
               hi_bound?: number;
@@ -4206,15 +4199,6 @@ export declare class AuthManager implements AuthProvider {
 
           export declare interface RegisterConditionResponse {
               condition_id: string;
-          }
-
-          export declare interface RegisterPartitionRequest {
-              collateral: string;
-              partition?: string[];
-              parent_collection_id?: string;
-          }
-
-          export declare interface RegisterPartitionResponse {
               keysets: Record<string, string>;
           }
 

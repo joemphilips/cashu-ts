@@ -4,20 +4,12 @@ import type {
   SerializedBlindedSignature,
 } from '../../model/types';
 
-export interface CtfConditionPartition {
-  partition?: string[];
-  collateral: string;
-  parent_collection_id: string;
-  keysets: Record<string, string>;
-  registered_at?: number;
-}
-
 export interface CtfConditionInfo {
   condition_id: string;
   threshold?: number;
   tags?: string[][];
   announcements?: string[];
-  partitions: CtfConditionPartition[];
+  keysets: Record<string, string>;
   registered_at?: number;
   condition_type?: string;
   lo_bound?: number;
@@ -66,6 +58,8 @@ export interface RegisterConditionRequest {
   threshold?: number;
   tags?: string[][];
   announcements: string[];
+  collateral?: string;
+  outcome_collections?: string[];
   condition_type?: string;
   lo_bound?: number;
   hi_bound?: number;
@@ -74,15 +68,6 @@ export interface RegisterConditionRequest {
 
 export interface RegisterConditionResponse {
   condition_id: string;
-}
-
-export interface RegisterPartitionRequest {
-  collateral: string;
-  partition?: string[];
-  parent_collection_id?: string;
-}
-
-export interface RegisterPartitionResponse {
   keysets: Record<string, string>;
 }
 
