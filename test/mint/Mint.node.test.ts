@@ -1436,6 +1436,12 @@ describe('Mint normalization', () => {
 
   it('wraps condition registration with requested outcome collections', async () => {
     const conditionId = 'd'.repeat(64);
+    const feeProof = {
+      id: '00bd033559de27d0',
+      amount: Amount.from(8),
+      secret: 'fee-secret',
+      C: '02'.padEnd(66, '1'),
+    };
     const seen: ReqArgs[] = [];
     const requestSpy = vi.fn(async (options: ReqArgs) => {
       seen.push(options);
@@ -1447,6 +1453,7 @@ describe('Mint normalization', () => {
         announcements: ['abcd'],
         collateral: 'sat',
         outcome_collections: ['YES', 'NO'],
+        fee: [feeProof],
       });
       return { condition_id: conditionId, keysets: { YES: 'keyset-yes', NO: 'keyset-no' } };
     }) as RequestFn;
@@ -1459,6 +1466,7 @@ describe('Mint normalization', () => {
         announcements: ['abcd'],
         collateral: 'sat',
         outcome_collections: ['YES', 'NO'],
+        fee: [feeProof],
       }),
     ).resolves.toEqual({
       condition_id: conditionId,
