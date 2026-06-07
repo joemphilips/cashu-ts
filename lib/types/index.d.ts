@@ -2690,9 +2690,8 @@ export declare class AuthManager implements AuthProvider {
           /**
            * Fetches one conditional-token condition from a CTF-aware mint.
            *
-          * The CTF extension keeps condition keyset metadata outside NUT-02 keyset discovery; callers
-           * use this to resolve root outcome collection keysets before building complete-set split
-           * outputs.
+           * The CTF extension keeps condition keyset metadata outside NUT-02 keyset discovery; callers use
+           * this to resolve root outcome collection keysets before building complete-set split outputs.
            */
           getCtfCondition(conditionId: string, customRequest?: RequestFn): Promise<CtfConditionInfo>;
           private getCtfConditionResponse;
@@ -4191,6 +4190,7 @@ export declare class AuthManager implements AuthProvider {
               announcements: string[];
               collateral?: string;
               outcome_collections?: string[];
+              fee?: Proof[];
               condition_type?: string;
               lo_bound?: number;
               hi_bound?: number;

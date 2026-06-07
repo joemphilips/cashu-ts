@@ -60,6 +60,7 @@ export interface RegisterConditionRequest {
   announcements: string[];
   collateral?: string;
   outcome_collections?: string[];
+  fee?: Proof[];
   condition_type?: string;
   lo_bound?: number;
   hi_bound?: number;

@@ -1972,6 +1972,8 @@ export interface RegisterConditionRequest {
     // (undocumented)
     condition_type?: string;
     // (undocumented)
+    fee?: Proof[];
+    // (undocumented)
     hi_bound?: number;
     // (undocumented)
     lo_bound?: number;
