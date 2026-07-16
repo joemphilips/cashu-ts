@@ -50,6 +50,7 @@ import { CheckStateEnum, type ProofState } from '../model/types/NUT07';
 import { type BatchMintRequest } from '../model/types/NUT29';
 import type { Proof, ProofLike } from '../model/types/proof';
 import type { Token } from '../model/types/token';
+import type { RequestFn, RequestOptions } from '../transport';
 import {
   getDecodedToken,
   invoiceHasAmountInHRP,
@@ -96,6 +97,14 @@ import { WalletEvents } from './WalletEvents';
 import { WalletOps } from './WalletOps';
 
 // model helpers
+
+function boundedRequest(
+  mint: Mint,
+  options: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'> | undefined,
+): RequestFn | undefined {
+  if (!options) return undefined;
+  return mint.createRequestWithOptions(options);
+}
 
 const PENDING_KEYSET_ID = '__PENDING__';
 
@@ -367,15 +376,20 @@ class Wallet {
    * Must be called before using other methods, unless loading mint from cache. See:
    * `loadMintFromCache`.
    * @param forceRefresh If true, re-fetches data even if cached.
+   * @param requestOptions Optional transport bounds applied to every mint-loading request.
    * @throws If fetching mint info, keysets, or keys fails.
    */
-  async loadMint(forceRefresh?: boolean): Promise<void> {
+  async loadMint(
+    forceRefresh?: boolean,
+    requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>,
+  ): Promise<void> {
+    const customRequest = boundedRequest(this.mint, requestOptions);
     const promises = [];
 
     // Load mint info
     if (!this._mintInfo || forceRefresh) {
       promises.push(
-        this.mint.getInfo().then((info) => {
+        this.mint.getInfo(customRequest).then((info) => {
           this._mintInfo = new MintInfo(info, this._logger);
           this.mint.setMintInfo(this._mintInfo);
           return null;
@@ -384,7 +398,7 @@ class Wallet {
     }
 
     // Load KeyChain
-    promises.push(this._keyChain.init(forceRefresh));
+    promises.push(this._keyChain.init(forceRefresh, customRequest));
 
     await Promise.all(promises);
     this.finishInit();
@@ -3246,7 +3260,10 @@ class Wallet {
    *   variant: v0/v1/v2 use secp256k1; v3 (`02…`) uses BLS12-381 G1.
    * @returns NUT-07 state for each proof, in same order.
    */
-  async checkProofsStates(proofs: Array<Pick<ProofLike, 'secret' | 'id'>>): Promise<ProofState[]> {
+  async checkProofsStates(
+    proofs: Array<Pick<ProofLike, 'secret' | 'id'>>,
+    requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>,
+  ): Promise<ProofState[]> {
     const enc = new TextEncoder();
     const Ys = proofs.map((p) =>
       isBlsKeyset(p.id)
@@ -3258,9 +3275,10 @@ class Wallet {
     const states: ProofState[] = [];
     for (let i = 0; i < Ys.length; i += BATCH_SIZE) {
       const YsSlice = Ys.slice(i, i + BATCH_SIZE);
-      const { states: batchStates } = await this.mint.check({
-        Ys: YsSlice,
-      });
+      const { states: batchStates } = await this.mint.check(
+        { Ys: YsSlice },
+        boundedRequest(this.mint, requestOptions),
+      );
       const stateMap: { [y: string]: ProofState } = {};
       batchStates.forEach((s) => {
         stateMap[s.Y] = s;

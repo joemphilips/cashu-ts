@@ -244,6 +244,85 @@ describe('requests', { timeout: 7500 }, () => {
     }
   });
 
+  test('cancels a success response that exceeds the configured byte limit', async () => {
+    const endpoint = mintUrl + '/v1/keys';
+    server.use(
+      http.get(endpoint, () => HttpResponse.json({ keysets: [{ keys: 'x'.repeat(1024) }] })),
+    );
+
+    const thrown = await request({ endpoint, responseBodyBytesLimit: 64 }).catch((e) => e);
+
+    expect(thrown).toBeInstanceOf(HttpResponseError);
+    expect(thrown).toMatchObject({ message: 'bad response', status: 200 });
+    expect(thrown.cause).toMatchObject({ message: 'Response body exceeds configured byte limit' });
+  });
+
+  test('keeps the stricter per-request byte limit over a global default', async () => {
+    const endpoint = mintUrl + '/v1/keys';
+    setGlobalRequestOptions({ responseBodyBytesLimit: 2_048 });
+    server.use(
+      http.get(endpoint, () => HttpResponse.json({ keysets: [{ keys: 'x'.repeat(1024) }] })),
+    );
+
+    const thrown = await request({ endpoint, responseBodyBytesLimit: 64 }).catch((e) => e);
+
+    expect(thrown).toBeInstanceOf(HttpResponseError);
+    expect(thrown.cause).toMatchObject({ message: 'Response body exceeds configured byte limit' });
+  });
+
+  test('cancels the response body when declared length exceeds the limit', async () => {
+    const endpoint = mintUrl + '/v1/keys';
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Length': '1024' }),
+      body: { cancel },
+    } as unknown as Response);
+
+    try {
+      const thrown = await request({ endpoint, responseBodyBytesLimit: 64 }).catch((e) => e);
+      expect(thrown).toBeInstanceOf(HttpResponseError);
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  test('rejects an invalid response byte limit before parsing', async () => {
+    const endpoint = mintUrl + '/v1/keys';
+    server.use(http.get(endpoint, () => HttpResponse.json({ keysets: [] })));
+
+    const thrown = await request({ endpoint, responseBodyBytesLimit: 0 }).catch((e) => e);
+
+    expect(thrown).toBeInstanceOf(HttpResponseError);
+    expect(thrown.cause).toMatchObject({ message: 'Response body byte limit is invalid' });
+  });
+
+  test('keeps request timeout active while reading the response body', async () => {
+    const endpoint = mintUrl + '/v1/keys';
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener(
+            'abort',
+            () => controller.error(new DOMException('aborted', 'AbortError')),
+            { once: true },
+          );
+        },
+      });
+      return new Response(body, { status: 200 });
+    });
+
+    try {
+      const thrown = await request({ endpoint, requestTimeout: 10 }).catch((e) => e);
+      expect(thrown).toBeInstanceOf(NetworkError);
+      expect(thrown).toMatchObject({ message: 'Request timed out after 10ms' });
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   test('maps AbortError fetch failures to NetworkError without timeout policy', async () => {
     const endpoint = mintUrl + '/v1/keys';
     const abortError = new Error('aborted by runtime');

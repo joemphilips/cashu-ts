@@ -460,6 +460,14 @@ export interface CtfConditionInfo {
     // (undocumented)
     lo_bound?: number;
     // (undocumented)
+    partitions?: Array<{
+        partition?: string[];
+        collateral?: string;
+        parent_collection_id?: string;
+        keysets?: Record<string, string>;
+        registered_at?: number;
+    }>;
+    // (undocumented)
     precision?: number;
     // (undocumented)
     registered_at?: number;
@@ -881,7 +889,7 @@ export class KeyChain {
     getKeysets(): Keyset[];
     // (undocumented)
     hasConditionalKeyset(id: string): boolean;
-    init(forceRefresh?: boolean): Promise<void>;
+    init(forceRefresh?: boolean, customRequest?: RequestFn): Promise<void>;
     // (undocumented)
     loadConditionalKeyset(id: string): Promise<Keyset>;
     loadFromCache(cache: KeyChainCache): void;
@@ -1147,6 +1155,7 @@ class Mint {
     createMintQuoteBolt11(mintQuotePayload: MintQuoteBolt11Request, customRequest?: RequestFn): Promise<MintQuoteBolt11Response>;
     createMintQuoteBolt12(mintQuotePayload: MintQuoteBolt12Request, customRequest?: RequestFn): Promise<MintQuoteBolt12Response>;
     createMintQuoteOnchain(mintQuotePayload: MintQuoteOnchainRequest, customRequest?: RequestFn): Promise<MintQuoteOnchainResponse>;
+    createRequestWithOptions(options: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>): RequestFn;
     ctfConvert(convertPayload: CtfConvertRequest, customRequest?: RequestFn): Promise<CtfConvertResponse>;
     disconnectWebSocket(): void;
     getConditionalKeysets(query?: GetConditionalKeysetsQuery, customRequest?: RequestFn): Promise<ConditionalKeysetsResponse>;
@@ -2013,6 +2022,7 @@ export type RequestFn = <T = unknown>(args: RequestOptions) => Promise<T>;
 // @public (undocumented)
 export type RequestOptions = RequestArgs & Omit<RequestInit, 'body' | 'headers'> & Partial<Nut19Policy> & {
     requestTimeout?: number;
+    responseBodyBytesLimit?: number;
     onResponseMeta?: (meta: ResponseMeta) => void;
 };
 
@@ -2402,7 +2412,7 @@ class Wallet {
     checkMintQuoteBolt11(quote: string | MintQuoteBolt11Response): Promise<MintQuoteBolt11Response>;
     checkMintQuoteBolt12(quote: string): Promise<MintQuoteBolt12Response>;
     checkMintQuoteOnchain(quote: string): Promise<MintQuoteOnchainResponse>;
-    checkProofsStates(proofs: Array<Pick<ProofLike, 'secret' | 'id'>>): Promise<ProofState[]>;
+    checkProofsStates(proofs: Array<Pick<ProofLike, 'secret' | 'id'>>, requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>): Promise<ProofState[]>;
     completeBatchMint(batchPreview: BatchMintPreview<Pick<MintQuoteBaseResponse, 'quote'>>): Promise<Proof[]>;
     // (undocumented)
     completeConditionalSwap(preview: ConditionalSwapPreview): Promise<Record<string, Proof[]>>;
@@ -2448,7 +2458,7 @@ class Wallet {
     }>;
     get keyChain(): KeyChain;
     get keysetId(): string;
-    loadMint(forceRefresh?: boolean): Promise<void>;
+    loadMint(forceRefresh?: boolean, requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>): Promise<void>;
     loadMintFromCache(mintInfo: GetInfoResponse, cache: KeyChainCache): void;
     // (undocumented)
     get logger(): Logger;

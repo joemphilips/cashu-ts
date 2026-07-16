@@ -127,6 +127,11 @@ export type RequestOptions = RequestArgs &
      */
     requestTimeout?: number;
     /**
+     * Maximum decoded HTTP response-body bytes. The response stream is cancelled before JSON
+     * parsing when this limit is exceeded.
+     */
+    responseBodyBytesLimit?: number;
+    /**
      * Optional callback invoked on every HTTP response with structured rate-limit metadata. Fires
      * before the promise resolves (on success) or rejects (on error), so consumers always receive
      * metadata even when the request fails.
@@ -350,6 +355,7 @@ async function _request(options: RequestOptions): Promise<unknown> {
     requestBody,
     headers: requestHeaders,
     requestTimeout,
+    responseBodyBytesLimit,
     onResponseMeta,
     // consumed by requestWithRetry, excluded from raw fetch options
     cached_endpoints,
@@ -408,88 +414,171 @@ async function _request(options: RequestOptions): Promise<unknown> {
       signal, // not overridable (includes caller signal)
     });
   } catch (err) {
-    const timedOut = !!timeoutController?.signal.aborted;
-    const callerAborted = !!callerSignal?.aborted;
-    if (timedOut) {
-      throw new NetworkError(`Request timed out after ${requestTimeout}ms`, { cause: err });
+    clearTimeout(timeoutId);
+    cleanupAbortListeners?.();
+    throw normalizeRequestFailure(err, timeoutController, callerSignal, requestTimeout);
+  }
+
+  try {
+    return await handleResponse(response, {
+      endpoint,
+      onResponseMeta,
+      responseBodyBytesLimit,
+    });
+  } catch (err) {
+    if (timeoutController?.signal.aborted || callerSignal?.aborted) {
+      throw normalizeRequestFailure(err, timeoutController, callerSignal, requestTimeout);
     }
-    if (callerAborted) {
-      throw new CallerAbortError(errorMessage(err, 'Request aborted by caller'));
-    }
-    if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
-      throw new NetworkError(err.message, { cause: err });
-    }
-    // A fetch() promise only rejects when the request fails,
-    // for example, because of a badly-formed request URL or a network error.
-    throw new NetworkError(errorMessage(err, 'Network request failed'), { cause: err });
+    throw err;
   } finally {
     clearTimeout(timeoutId);
     cleanupAbortListeners?.();
   }
+}
 
-  // Parse Retry-After once for reuse in both ResponseMeta and RateLimitError
+function normalizeRequestFailure(
+  err: unknown,
+  timeoutController: AbortController | undefined,
+  callerSignal: AbortSignal | undefined,
+  requestTimeout: number | undefined,
+): Error {
+  if (timeoutController?.signal.aborted) {
+    return new NetworkError(`Request timed out after ${requestTimeout}ms`, { cause: err });
+  }
+  if (callerSignal?.aborted) {
+    return new CallerAbortError(errorMessage(err, 'Request aborted by caller'));
+  }
+  if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+    return new NetworkError(err.message, { cause: err });
+  }
+  return new NetworkError(errorMessage(err, 'Network request failed'), { cause: err });
+}
+
+async function handleResponse(
+  response: Response,
+  options: Pick<RequestOptions, 'endpoint' | 'onResponseMeta' | 'responseBodyBytesLimit'>,
+): Promise<unknown> {
   const retryAfterMs = parseRetryAfter(response.headers.get('Retry-After'));
+  notifyResponseMeta(response, options.endpoint, retryAfterMs, options.onResponseMeta);
+  if (!response.ok) {
+    return throwHttpResponseError(response, retryAfterMs, options.responseBodyBytesLimit);
+  }
+  return parseSuccessResponse(response, options.responseBodyBytesLimit);
+}
 
-  // Build and fire ResponseMeta callback before any throw or return
-  if (onResponseMeta && response.headers) {
-    const meta: ResponseMeta = {
+function notifyResponseMeta(
+  response: Response,
+  endpoint: string,
+  retryAfterMs: number | undefined,
+  onResponseMeta: ((meta: ResponseMeta) => void) | undefined,
+): void {
+  if (!onResponseMeta || !response.headers) return;
+  safeCallback(
+    onResponseMeta,
+    {
       endpoint,
       status: response.status,
       retryAfterMs,
       rateLimit: response.headers.get('RateLimit') ?? undefined,
       rateLimitPolicy: response.headers.get('RateLimit-Policy') ?? undefined,
       headers: response.headers,
-    };
-    safeCallback(onResponseMeta, meta, requestLogger, {
-      op: 'request.onResponseMeta',
-      status: response.status,
-      endpoint,
-    });
-  }
+    },
+    requestLogger,
+    { op: 'request.onResponseMeta', status: response.status, endpoint },
+  );
+}
 
-  if (!response.ok) {
-    let errorData: ApiError;
-    let errorDataCause: unknown;
-    try {
-      errorData = parseErrorBody(await response.text());
-    } catch (err) {
-      errorDataCause = err;
-      errorData = { error: 'bad response' };
-    }
-
-    if (response.status === 429) {
-      throw new RateLimitError('429 Too Many Requests', retryAfterMs);
-    }
-
-    if (
-      response.status === 400 &&
-      'code' in errorData &&
-      typeof errorData.code === 'number' &&
-      'detail' in errorData &&
-      typeof errorData.detail === 'string'
-    ) {
-      throw new MintOperationError(errorData.code, errorData.detail);
-    }
-
-    let errorMessage = 'HTTP request failed';
-    if ('error' in errorData && typeof errorData.error === 'string') {
-      errorMessage = errorData.error;
-    } else if ('detail' in errorData && typeof errorData.detail === 'string') {
-      errorMessage = errorData.detail;
-    }
-
-    throw new HttpResponseError(errorMessage, response.status, { cause: errorDataCause });
-  }
-
+async function throwHttpResponseError(
+  response: Response,
+  retryAfterMs: number | undefined,
+  responseBodyBytesLimit: number | undefined,
+): Promise<never> {
+  let errorData: ApiError;
+  let errorDataCause: unknown;
   try {
-    const responseText = await response.text();
-    if (!responseText) {
-      throw new CTSError('Empty response body');
-    }
+    errorData = parseErrorBody(await readResponseText(response, responseBodyBytesLimit));
+  } catch (err) {
+    errorDataCause = err;
+    errorData = { error: 'bad response' };
+  }
+  if (response.status === 429) throw new RateLimitError('429 Too Many Requests', retryAfterMs);
+  if (
+    response.status === 400 &&
+    typeof errorData.code === 'number' &&
+    typeof errorData.detail === 'string'
+  ) {
+    throw new MintOperationError(errorData.code, errorData.detail);
+  }
+  const message =
+    typeof errorData.error === 'string'
+      ? errorData.error
+      : typeof errorData.detail === 'string'
+        ? errorData.detail
+        : 'HTTP request failed';
+  throw new HttpResponseError(message, response.status, { cause: errorDataCause });
+}
+
+async function parseSuccessResponse(
+  response: Response,
+  responseBodyBytesLimit: number | undefined,
+): Promise<unknown> {
+  try {
+    const responseText = await readResponseText(response, responseBodyBytesLimit);
+    if (!responseText) throw new CTSError('Empty response body');
     return JSONInt.parse(responseText);
   } catch (err) {
     requestLogger.error('Failed to parse HTTP response', { err });
     throw new HttpResponseError('bad response', response.status, { cause: err });
+  }
+}
+
+async function readResponseText(response: Response, maximumBytes?: number): Promise<string> {
+  if (maximumBytes === undefined) return response.text();
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
+    throw new CTSError('Response body byte limit is invalid');
+  }
+  const contentLength = response.headers.get('Content-Length');
+  if (
+    contentLength !== null &&
+    /^\d+$/.test(contentLength) &&
+    Number(contentLength) > maximumBytes
+  ) {
+    void response.body?.cancel().catch(() => undefined);
+    throw new CTSError('Response body exceeds configured byte limit');
+  }
+  if (!response.body) {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > maximumBytes) {
+      throw new CTSError('Response body exceeds configured byte limit');
+    }
+    return text;
+  }
+  return readBoundedResponseStream(response.body, maximumBytes);
+}
+
+async function readBoundedResponseStream(
+  body: NonNullable<Response['body']>,
+  maximumBytes: number,
+): Promise<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maximumBytes) {
+        void reader.cancel().catch(() => undefined);
+        throw new CTSError('Response body exceeds configured byte limit');
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return chunks.join('');
+  } finally {
+    reader.releaseLock();
   }
 }
 
@@ -525,6 +614,15 @@ export default async function request<T>(options: RequestOptions): Promise<T> {
   const perRequest = options.onResponseMeta;
   const globalMeta = globalRequestOptions.onResponseMeta;
   const merged: RequestOptions = { ...options, ...globalRequestOptions };
+  merged.requestTimeout = minimumPositiveBound(
+    options.requestTimeout,
+    globalRequestOptions.requestTimeout,
+  );
+  merged.responseBodyBytesLimit = minimumDefinedBound(
+    options.responseBodyBytesLimit,
+    globalRequestOptions.responseBodyBytesLimit,
+  );
+  merged.signal = options.signal ?? globalRequestOptions.signal;
 
   // Default: per-request callback only
   if (perRequest) merged.onResponseMeta = perRequest;
@@ -547,4 +645,23 @@ export default async function request<T>(options: RequestOptions): Promise<T> {
 
   const data = await requestWithRetry(merged);
   return data as T;
+}
+
+function minimumPositiveBound(
+  first: number | undefined,
+  second: number | undefined,
+): number | undefined {
+  const bounds = [first, second].filter(
+    (value): value is number => typeof value === 'number' && value > 0,
+  );
+  return bounds.length === 0 ? undefined : Math.min(...bounds);
+}
+
+function minimumDefinedBound(
+  first: number | undefined,
+  second: number | undefined,
+): number | undefined {
+  if (first === undefined) return second;
+  if (second === undefined) return first;
+  return Math.min(first, second);
 }

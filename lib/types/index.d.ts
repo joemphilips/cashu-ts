@@ -1586,8 +1586,9 @@ export declare class AuthManager implements AuthProvider {
            * Intended for callers that want the freshest data from the mint and can use an asynchronous
            * path.
            * @param forceRefresh If true, re-fetches data even if already loaded.
+           * @param customRequest Optional override for every mint-loading request.
            */
-          init(forceRefresh?: boolean): Promise<void>;
+          init(forceRefresh?: boolean, customRequest?: RequestFn): Promise<void>;
           /**
            * Synchronously load keysets and keys from cached data.
            *
@@ -2256,6 +2257,10 @@ export declare class AuthManager implements AuthProvider {
               logger?: Logger;
           });
           get mintUrl(): string;
+          /**
+           * Decorates the configured transport without replacing a native/custom adapter.
+           */
+          createRequestWithOptions(options: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>): RequestFn;
           /**
            * Metadata from the most recent HTTP response, including rate-limit headers.
            *
@@ -4229,6 +4234,11 @@ export declare class AuthManager implements AuthProvider {
                */
               requestTimeout?: number;
               /**
+               * Maximum decoded HTTP response-body bytes. The response stream is cancelled before JSON
+               * parsing when this limit is exceeded.
+               */
+              responseBodyBytesLimit?: number;
+              /**
                * Optional callback invoked on every HTTP response with structured rate-limit metadata. Fires
                * before the promise resolves (on success) or rejects (on error), so consumers always receive
                * metadata even when the request fails.
@@ -5300,9 +5310,10 @@ export declare class AuthManager implements AuthProvider {
                * Must be called before using other methods, unless loading mint from cache. See:
                * `loadMintFromCache`.
                * @param forceRefresh If true, re-fetches data even if cached.
+               * @param requestOptions Optional transport bounds applied to every mint-loading request.
                * @throws If fetching mint info, keysets, or keys fails.
                */
-              loadMint(forceRefresh?: boolean): Promise<void>;
+              loadMint(forceRefresh?: boolean, requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>): Promise<void>;
               /**
                * Load mint information, keysets, and keys from cached data.
                *
@@ -6165,7 +6176,7 @@ export declare class AuthManager implements AuthProvider {
                 *   variant: v0/v1/v2 use secp256k1; v3 (`02…`) uses BLS12-381 G1.
                 * @returns NUT-07 state for each proof, in same order.
                 */
-               checkProofsStates(proofs: Array<Pick<ProofLike, 'secret' | 'id'>>): Promise<ProofState[]>;
+               checkProofsStates(proofs: Array<Pick<ProofLike, 'secret' | 'id'>>, requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>): Promise<ProofState[]>;
                /**
                 * Groups proofs by their corresponding state, preserving order within each group.
                 *

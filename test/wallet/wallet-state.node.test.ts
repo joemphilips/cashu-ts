@@ -1,9 +1,60 @@
 import { HttpResponse, http } from 'msw';
-import { test, describe, expect } from 'vitest';
-import { Wallet, CheckStateEnum, Amount } from '../../src';
-import { mint, unit, mintUrl, useTestServer } from './_setup';
+import { test, describe, expect, vi } from 'vitest';
+import { Wallet, CheckStateEnum, Amount, Mint, type RequestFn } from '../../src';
+import {
+  dummyKeysResp,
+  dummyKeysetResp,
+  mint,
+  mintInfoResp,
+  unit,
+  mintUrl,
+  useTestServer,
+} from './_setup';
 
 const server = useTestServer();
+
+describe('loadMint transport bounds', () => {
+  test('applies the response byte limit to cold mint bootstrap', async () => {
+    server.use(
+      http.get(mintUrl + '/v1/info', () => HttpResponse.json({ name: 'x'.repeat(1024), nuts: {} })),
+    );
+    const wallet = new Wallet(mint, { unit });
+
+    await expect(
+      wallet.loadMint(undefined, {
+        requestTimeout: 1_000,
+        responseBodyBytesLimit: 64,
+      }),
+    ).rejects.toThrow('bad response');
+  });
+
+  test('decorates rather than replaces a configured mint transport', async () => {
+    const customRequest = vi.fn(async ({ endpoint }: { endpoint: string }) => {
+      if (endpoint.endsWith('/v1/info')) return mintInfoResp;
+      if (endpoint.endsWith('/v1/keysets')) return dummyKeysetResp;
+      if (endpoint.endsWith('/v1/keys')) return dummyKeysResp;
+      throw new Error(`unexpected custom request: ${endpoint}`);
+    }) as RequestFn;
+    const customMint = new Mint(mintUrl, { customRequest });
+    const wallet = new Wallet(customMint, { unit });
+    const controller = new AbortController();
+
+    await wallet.loadMint(undefined, {
+      requestTimeout: 10_000,
+      responseBodyBytesLimit: 256 * 1_024,
+      signal: controller.signal,
+    });
+
+    expect(customRequest).toHaveBeenCalledTimes(3);
+    for (const [options] of customRequest.mock.calls) {
+      expect(options).toMatchObject({
+        requestTimeout: 10_000,
+        responseBodyBytesLimit: 256 * 1_024,
+        signal: controller.signal,
+      });
+    }
+  });
+});
 
 describe('checkProofsStates', () => {
   const proofs = [
@@ -57,6 +108,23 @@ describe('checkProofsStates', () => {
 
     const result = await wallet.checkProofsStates(proofs);
     expect(result[0].witness).toBeNull();
+  });
+
+  test('checkProofsStates enforces per-call transport bounds', async () => {
+    server.use(
+      http.post(mintUrl + '/v1/checkstate', () =>
+        HttpResponse.json({ states: [{ witness: 'x'.repeat(1024) }] }),
+      ),
+    );
+    const wallet = new Wallet(mint, { unit });
+    await wallet.loadMint();
+
+    await expect(
+      wallet.checkProofsStates(proofs, {
+        requestTimeout: 1_000,
+        responseBodyBytesLimit: 64,
+      }),
+    ).rejects.toThrow('bad response');
   });
 });
 

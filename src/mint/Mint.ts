@@ -117,6 +117,16 @@ class Mint {
   }
 
   /**
+   * Decorates the configured transport without replacing a native/custom adapter.
+   */
+  createRequestWithOptions(
+    options: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>,
+  ): RequestFn {
+    return <T = unknown>(requestOptions: RequestOptions): Promise<T> =>
+      this._request<T>({ ...requestOptions, ...options });
+  }
+
+  /**
    * Metadata from the most recent HTTP response, including rate-limit headers.
    *
    * `undefined` before any request has been made.

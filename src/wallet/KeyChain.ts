@@ -9,6 +9,7 @@ import type {
   KeyChainCache,
   KeysetCache,
 } from '../model/types/keyset';
+import type { RequestFn } from '../transport';
 
 import { Keyset } from './Keyset';
 
@@ -132,8 +133,9 @@ export class KeyChain {
    * Intended for callers that want the freshest data from the mint and can use an asynchronous
    * path.
    * @param forceRefresh If true, re-fetches data even if already loaded.
+   * @param customRequest Optional override for every mint-loading request.
    */
-  async init(forceRefresh?: boolean): Promise<void> {
+  async init(forceRefresh?: boolean, customRequest?: RequestFn): Promise<void> {
     // Skip if already loaded, unless force
     if (Object.keys(this.keysets).length > 0 && !forceRefresh) {
       return;
@@ -141,7 +143,10 @@ export class KeyChain {
 
     // Fetch keys and keysets in parallel
     const [allKeysetsResponse, allKeysResponse]: [GetKeysetsResponse, GetKeysResponse] =
-      await Promise.all([this.mint.getKeySets(), this.mint.getKeys()]);
+      await Promise.all([
+        this.mint.getKeySets(customRequest),
+        this.mint.getKeys(undefined, undefined, customRequest),
+      ]);
 
     this.buildKeychain(allKeysetsResponse.keysets, allKeysResponse.keysets);
   }
