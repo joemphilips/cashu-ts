@@ -122,7 +122,12 @@ export {
   type AmountLike,
 } from './model/Amount';
 export { OutputData } from './model/OutputData';
-export type { OutputDataLike, OutputDataFactory, SerializedOutputData } from './model/OutputData';
+export type {
+  Nut13OutputLocator,
+  OutputDataLike,
+  OutputDataFactory,
+  SerializedOutputData,
+} from './model/OutputData';
 export type { OutputDataCreator } from './model/OutputDataCreator';
 export { MintInfo } from './model/MintInfo';
 export { WSConnection, injectWebSocketImpl, setGlobalRequestOptions } from './transport';

@@ -3412,6 +3412,14 @@ export declare class AuthManager implements AuthProvider {
           tags: string[][];
       };
 
+      /**
+       * Exact NUT-13 derivation location for one deterministic output.
+       */
+      export declare type Nut13OutputLocator = Readonly<{
+          keysetId: string;
+          counter: number;
+      }>;
+
       export declare type Nut19Policy = {
           ttl: number;
           cached_endpoints: Array<{
@@ -3562,6 +3570,7 @@ export declare class AuthManager implements AuthProvider {
           blindingFactor: bigint;
           secret: Uint8Array;
           ephemeralE?: string;
+          readonly nut13?: Nut13OutputLocator;
           constructor(blindedMessage: SerializedBlindedMessage, blindingFactor: bigint, secret: Uint8Array, ephemeralE?: string);
           toProof(sig: SerializedBlindedSignature, keyset: HasKeysetKeys): Proof;
           static createP2PKData(p2pk: P2PKOptions, amount: AmountLike, keyset: HasKeysetKeys, customSplit?: AmountLike[]): OutputData[];
@@ -3647,6 +3656,10 @@ export declare class AuthManager implements AuthProvider {
               blindingFactor: bigint;
               secret: Uint8Array;
               ephemeralE?: string;
+              /**
+               * Present only when the producer knows the exact NUT-13 derivation location.
+               */
+              readonly nut13?: Nut13OutputLocator;
               toProof: (signature: SerializedBlindedSignature, keyset: HasKeysetKeys) => Proof;
           }
 
@@ -4611,6 +4624,10 @@ export declare class AuthManager implements AuthProvider {
               blindingFactor: string;
               secret: string;
               ephemeralE?: string;
+              /**
+               * Exact NUT-13 derivation location when this output was created deterministically.
+               */
+              nut13?: Nut13OutputLocator;
           };
 
           export declare function serializeMintKeys(mintKeys: RawMintKeys): SerializedMintKeys;

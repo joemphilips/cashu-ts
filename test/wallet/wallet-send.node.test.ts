@@ -9,6 +9,7 @@ import {
   type Proof,
   type ProofLike,
   type OutputConfig,
+  type OutputType,
 } from '../../src';
 
 import { Bytes } from '../../src/utils';
@@ -1005,6 +1006,22 @@ describe('send', () => {
       }
 
       const maxManualEnd = manualEnds.length ? Math.max(...manualEnds) : 0;
+
+      let autoCursor = maxManualEnd;
+      const expectedCounters = (
+        outputType: Extract<OutputType, { type: 'deterministic' }>,
+        length: number,
+      ) => {
+        const start = outputType.counter > 0 ? outputType.counter : autoCursor;
+        if (outputType.counter === 0) autoCursor += length;
+        return Array.from({ length }, (_, index) => ({ keysetId, counter: start + index }));
+      };
+      expect(res.sendOutputs?.map((output) => output.nut13)).toEqual(
+        expectedCounters(sendOT, sendLen),
+      );
+      expect(res.keepOutputs?.map((output) => output.nut13)).toEqual(
+        expectedCounters(keepOT, keepLen),
+      );
 
       const autoTotal = (sendIsManual ? 0 : sendLen) + (keepIsManual ? 0 : keepLen);
 

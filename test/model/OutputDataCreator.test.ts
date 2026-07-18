@@ -5,7 +5,11 @@ import { DefaultOutputDataCreator } from '../../src/model/OutputDataCreator';
 import { OutputData, isOutputDataFactory } from '../../src/model/OutputData';
 import { getPubKeyFromPrivKey } from '../../src/crypto';
 import { Bytes } from '../../src/utils';
-import type { OutputDataFactory, OutputDataLike } from '../../src/model/OutputData';
+import type {
+  OutputDataFactory,
+  OutputDataLike,
+  SerializedOutputData,
+} from '../../src/model/OutputData';
 import type { HasKeysetKeys, SerializedBlindedSignature, Proof } from '../../src/model/types';
 
 describe('DefaultOutputDataCreator', () => {
@@ -76,6 +80,71 @@ describe('OutputData helpers', () => {
 
     expect(serialized.blindingFactor).toMatch(/^(0|[1-9]\d*)$/);
     expect(OutputData.serialize(deserialized)).toEqual(serialized);
+  });
+
+  test('records and round-trips the exact NUT-13 locator for deterministic outputs', () => {
+    const keysetId = '012e23479a0029432eaad0d2040c09be53bab592d5cbf1d55e0dd26c9495951b30';
+    const outputs = OutputData.createDeterministicData(
+      3,
+      new Uint8Array([1]),
+      7,
+      { id: keysetId, keys: { '1': 'unused', '2': 'unused' } },
+      [1, 2],
+    );
+
+    expect(outputs.map((output) => output.nut13)).toEqual([
+      { keysetId, counter: 7 },
+      { keysetId, counter: 8 },
+    ]);
+    expect(outputs.every((output) => Object.isFrozen(output.nut13))).toBe(true);
+
+    const restored = outputs.map((output) => OutputData.deserialize(OutputData.serialize(output)));
+    expect(restored.map((output) => output.nut13)).toEqual([
+      { keysetId, counter: 7 },
+      { keysetId, counter: 8 },
+    ]);
+  });
+
+  test('does not claim NUT-13 locators for random or conditional outputs', () => {
+    const keysetId = '009a1f293253e41e';
+    const privkey = Bytes.fromHex('01'.repeat(32));
+    const pubkey = Bytes.toHex(getPubKeyFromPrivKey(privkey));
+
+    expect(OutputData.createSingleRandomData(1, keysetId).nut13).toBeUndefined();
+    expect(OutputData.createSingleP2PKData({ pubkey }, 1, keysetId).nut13).toBeUndefined();
+  });
+
+  test.each([
+    ['negative counter', { keysetId: '009a1f293253e41e', counter: -1 }],
+    ['fractional counter', { keysetId: '009a1f293253e41e', counter: 1.5 }],
+    ['mismatched keyset', { keysetId: '00ad268c4d1f5826', counter: 1 }],
+  ])('rejects an invalid serialized NUT-13 locator: %s', (_name, nut13) => {
+    const serialized = OutputData.serialize(
+      OutputData.createSingleRandomData(21, '009a1f293253e41e'),
+    );
+
+    expect(() => OutputData.deserialize({ ...serialized, nut13 })).toThrow(
+      /Invalid SerializedOutputData: .*NUT-13/,
+    );
+  });
+
+  test.each([
+    ['missing', undefined],
+    ['non-string', 42],
+    ['empty', ''],
+  ])('rejects equal but invalid %s serialized keyset ids', (_name, keysetId) => {
+    const serialized = OutputData.serialize(
+      OutputData.createSingleRandomData(21, '009a1f293253e41e'),
+    );
+    const invalid = {
+      ...serialized,
+      blindedMessage: { ...serialized.blindedMessage, id: keysetId },
+      nut13: { keysetId, counter: 1 },
+    } as unknown as SerializedOutputData;
+
+    expect(() => OutputData.deserialize(invalid)).toThrow(
+      /Invalid SerializedOutputData: .*keyset ids must be non-empty strings/,
+    );
   });
 
   test('rejects invalid serialized blinding factors', () => {

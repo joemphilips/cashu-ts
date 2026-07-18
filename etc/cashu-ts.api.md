@@ -1510,6 +1510,12 @@ export type NUT10Option = {
     tags: string[][];
 };
 
+// @public
+export type Nut13OutputLocator = Readonly<{
+    keysetId: string;
+    counter: number;
+}>;
+
 // @public (undocumented)
 export type Nut19Policy = {
     ttl: number;
@@ -1627,6 +1633,8 @@ export class OutputData implements OutputDataLike {
     // (undocumented)
     ephemeralE?: string;
     // (undocumented)
+    readonly nut13?: Nut13OutputLocator;
+    // (undocumented)
     secret: Uint8Array;
     static serialize(output: OutputDataLike): SerializedOutputData;
     static sumOutputAmounts(outputs: OutputDataLike[]): Amount;
@@ -1661,6 +1669,7 @@ export interface OutputDataLike {
     blindingFactor: bigint;
     // (undocumented)
     ephemeralE?: string;
+    readonly nut13?: Nut13OutputLocator;
     // (undocumented)
     secret: Uint8Array;
     // (undocumented)
@@ -2165,6 +2174,7 @@ export type SerializedOutputData = {
     blindingFactor: string;
     secret: string;
     ephemeralE?: string;
+    nut13?: Nut13OutputLocator;
 };
 
 // @public (undocumented)

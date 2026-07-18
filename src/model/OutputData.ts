@@ -51,6 +51,14 @@ const RECOVERY_HINT =
   'Inputs may already be spent; if the wallet is seeded, try restoring (NUT-09) to recover.';
 
 /**
+ * Exact NUT-13 derivation location for one deterministic output.
+ */
+export type Nut13OutputLocator = Readonly<{
+  keysetId: string;
+  counter: number;
+}>;
+
+/**
  * Minimum interface for an output data object. OutputData helpers only require keyset `id` and
  * `keys`. Custom implementations must satisfy this interface to be used with wallet operations.
  */
@@ -59,6 +67,10 @@ export interface OutputDataLike {
   blindingFactor: bigint;
   secret: Uint8Array;
   ephemeralE?: string;
+  /**
+   * Present only when the producer knows the exact NUT-13 derivation location.
+   */
+  readonly nut13?: Nut13OutputLocator;
 
   toProof: (signature: SerializedBlindedSignature, keyset: HasKeysetKeys) => Proof;
 }
@@ -88,6 +100,10 @@ export type SerializedOutputData = {
   blindingFactor: string;
   secret: string;
   ephemeralE?: string;
+  /**
+   * Exact NUT-13 derivation location when this output was created deterministically.
+   */
+  nut13?: Nut13OutputLocator;
 };
 
 /**
@@ -128,6 +144,7 @@ export class OutputData implements OutputDataLike {
   blindingFactor: bigint;
   secret: Uint8Array;
   ephemeralE?: string;
+  declare readonly nut13?: Nut13OutputLocator;
 
   constructor(
     blindedMessage: SerializedBlindedMessage,
@@ -396,7 +413,7 @@ export class OutputData implements OutputDataLike {
     // This ensures the HDKey is only created once for legacy BIP-32 keysets
     const derive = createSecretAndBlindingFactorDeriver(seed, keyset.id);
     return amounts.map((a, i) =>
-      createSingleDeterministicDataFromBytes(a, keyset.id, derive(counter + i)),
+      createSingleDeterministicDataFromBytes(a, keyset.id, counter + i, derive(counter + i)),
     );
   }
 
@@ -413,6 +430,7 @@ export class OutputData implements OutputDataLike {
     return createSingleDeterministicDataFromBytes(
       amount,
       keysetId,
+      counter,
       deriveSecretAndBlindingFactor(seed, keysetId, counter),
     );
   }
@@ -459,6 +477,9 @@ export class OutputData implements OutputDataLike {
       blindingFactor: output.blindingFactor.toString(),
       secret: bytesToHex(output.secret),
       ...(output.ephemeralE && { ephemeralE: output.ephemeralE }),
+      ...(output.nut13 !== undefined && {
+        nut13: validatedNut13Locator(output.nut13, output.blindedMessage.id),
+      }),
     };
   }
 
@@ -474,7 +495,7 @@ export class OutputData implements OutputDataLike {
       if (!/^(0|[1-9]\d*)$/.test(serialized.blindingFactor)) {
         throw new Error('blindingFactor must be a canonical decimal integer');
       }
-      return new OutputData(
+      const output = new OutputData(
         {
           amount: Amount.from(serialized.blindedMessage.amount),
           B_: serialized.blindedMessage.B_,
@@ -484,6 +505,7 @@ export class OutputData implements OutputDataLike {
         hexToBytes(serialized.secret),
         serialized.ephemeralE,
       );
+      return serialized.nut13 === undefined ? output : attachNut13Locator(output, serialized.nut13);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       throw new CTSError(`Invalid SerializedOutputData: ${message}`, { cause: e });
@@ -497,6 +519,7 @@ export class OutputData implements OutputDataLike {
 function createSingleDeterministicDataFromBytes(
   amount: AmountLike,
   keysetId: string,
+  counter: number,
   derived: { blindingFactor: Uint8Array; secret: Uint8Array },
 ): OutputData {
   const amountValue = Amount.from(amount);
@@ -506,11 +529,50 @@ function createSingleDeterministicDataFromBytes(
   // for BIP32-style retry logic (caller increments counter and retries).
   const deterministicR = Bytes.toBigInt(derived.blindingFactor);
   const { r, B_ } = blindMessageForKeyset(utf8SecretBytes, keysetId, deterministicR);
-  return new OutputData(
-    new BlindedMessage(amountValue, B_, keysetId).getSerializedBlindedMessage(),
-    r,
-    utf8SecretBytes,
+  return attachNut13Locator(
+    new OutputData(
+      new BlindedMessage(amountValue, B_, keysetId).getSerializedBlindedMessage(),
+      r,
+      utf8SecretBytes,
+    ),
+    { keysetId, counter },
   );
+}
+
+function attachNut13Locator(output: OutputData, locator: Nut13OutputLocator): OutputData {
+  Object.defineProperty(output, 'nut13', {
+    configurable: false,
+    enumerable: true,
+    value: validatedNut13Locator(locator, output.blindedMessage.id),
+    writable: false,
+  });
+  return output;
+}
+
+function validatedNut13Locator(
+  locator: Nut13OutputLocator,
+  outputKeysetId: unknown,
+): Nut13OutputLocator {
+  if (
+    typeof locator !== 'object' ||
+    locator === null ||
+    !Number.isSafeInteger(locator.counter) ||
+    locator.counter < 0
+  ) {
+    throw new Error('NUT-13 counter must be a non-negative safe integer');
+  }
+  if (
+    typeof outputKeysetId !== 'string' ||
+    outputKeysetId.trim().length === 0 ||
+    typeof locator.keysetId !== 'string' ||
+    locator.keysetId.trim().length === 0
+  ) {
+    throw new Error('NUT-13 and blinded message keyset ids must be non-empty strings');
+  }
+  if (locator.keysetId !== outputKeysetId) {
+    throw new Error('NUT-13 keysetId must match the blinded message keyset id');
+  }
+  return Object.freeze({ keysetId: locator.keysetId, counter: locator.counter });
 }
 
 /**
