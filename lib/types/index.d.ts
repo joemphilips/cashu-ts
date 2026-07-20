@@ -887,6 +887,11 @@ export declare class AuthManager implements AuthProvider {
      };
 
      /**
+      * Decodes the curve selected by a canonical Cashu keyset identifier.
+      */
+     export declare function decodeKeysetCurve(keysetId: string): KeysetCurve;
+
+     /**
       * Decodes an encoded cashu payment request string into a {@link PaymentRequest}.
       */
      export declare function decodePaymentRequest(paymentRequest: string): PaymentRequest_2;
@@ -1479,10 +1484,7 @@ export declare class AuthManager implements AuthProvider {
       /* Excluded from this release type: invoiceHasAmountInHRP */
 
       /**
-       * True if `keysetId` is a v3 BLS12-381 keyset id (modern hex, version byte 0x02).
-       *
-       * @remarks
-       * Strict version gate: does not assume future keyset versions are BLS.
+       * True if `keysetId` is a canonical v3 BLS12-381 keyset id.
        */
       export declare function isBlsKeyset(keysetId: string): boolean;
 
@@ -1817,6 +1819,11 @@ export declare class AuthManager implements AuthProvider {
            */
           keys?: Keys;
       };
+
+      /**
+       * Curve family selected by a supported Cashu keyset identifier.
+       */
+      export declare type KeysetCurve = 'secp256k1' | 'bls12-381';
 
       export declare type KeysetPair = {
           keysetId: string;

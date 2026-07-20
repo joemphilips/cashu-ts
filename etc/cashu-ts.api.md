@@ -525,6 +525,9 @@ export type CurvePoint = {
 };
 
 // @public
+export function decodeKeysetCurve(keysetId: string): KeysetCurve;
+
+// @public
 export function decodePaymentRequest(paymentRequest: string): PaymentRequest_2;
 
 // @public @deprecated (undocumented)
@@ -977,6 +980,9 @@ export class Keyset {
 export type KeysetCache = MintKeyset & {
     keys?: Keys;
 };
+
+// @public
+export type KeysetCurve = 'secp256k1' | 'bls12-381';
 
 // @public (undocumented)
 export type KeysetPair = {

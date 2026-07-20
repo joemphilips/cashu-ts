@@ -12,6 +12,7 @@ import {
   createBlindSignature,
   constructUnblindedSignature,
   createRandomRawBlindedMessage,
+  decodeKeysetCurve,
   getKeysetIdInt,
   hash_e,
   isBlsKeyset,
@@ -207,6 +208,32 @@ describe('isBlsKeyset', () => {
     expect(isBlsKeyset('')).toBe(false);
     expect(isBlsKeyset('0')).toBe(false);
     expect(isBlsKeyset('zz')).toBe(false);
+  });
+});
+
+describe('decodeKeysetCurve', () => {
+  test('decodes legacy, v1, v2, and v3 keyset identifiers strictly', () => {
+    expect(decodeKeysetCurve('DSAl9nvvyfva')).toBe('secp256k1');
+    expect(decodeKeysetCurve('00bd033559de27d0')).toBe('secp256k1');
+    expect(
+      decodeKeysetCurve('01ce4c47836fd0e64f37a08254777b7fd0dedb95fc1ddd0acadf5600674c743c5d'),
+    ).toBe('secp256k1');
+    expect(
+      decodeKeysetCurve('02ce4c47836fd0e64f37a08254777b7fd0dedb95fc1ddd0acadf5600674c743c5d'),
+    ).toBe('bls12-381');
+  });
+
+  test('rejects malformed and future keyset identifiers', () => {
+    for (const id of [
+      '',
+      'keyset-1',
+      '01abcdef',
+      '02abcdef012345678',
+      '03abcdef01234567',
+      'zzabcdef01234567',
+    ]) {
+      expect(() => decodeKeysetCurve(id)).toThrow(/keyset ID/);
+    }
   });
 });
 

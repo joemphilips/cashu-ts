@@ -16,6 +16,11 @@ export type CurvePoint =
   | { kind: 'secp'; pt: WeierstrassPoint<bigint> }
   | { kind: 'blsG1'; pt: G1Point };
 
+/**
+ * Curve family selected by a supported Cashu keyset identifier.
+ */
+export type KeysetCurve = 'secp256k1' | 'bls12-381';
+
 export function asSecpPoint(pt: WeierstrassPoint<bigint>): CurvePoint {
   return { kind: 'secp', pt };
 }
@@ -42,15 +47,36 @@ export function pointToHex(p: CurvePoint): string {
 }
 
 /**
- * True if `keysetId` is a v3 BLS12-381 keyset id (modern hex, version byte 0x02).
- *
- * @remarks
- * Strict version gate: does not assume future keyset versions are BLS.
+ * Decodes the curve selected by a canonical Cashu keyset identifier.
+ */
+export function decodeKeysetCurve(keysetId: string): KeysetCurve {
+  if (/^[A-Za-z0-9+/]{12}$/.test(keysetId)) return 'secp256k1';
+  if (!isValidHex(keysetId)) {
+    throw new CTSError('Malformed Cashu keyset ID');
+  }
+  const version = keysetId.slice(0, 2).toLowerCase();
+  if (version === '00' && keysetId.length === 16) return 'secp256k1';
+  if (
+    (version === '01' || version === '02') &&
+    (keysetId.length === 16 || keysetId.length === 66)
+  ) {
+    return version === '02' ? 'bls12-381' : 'secp256k1';
+  }
+  if (version === '00' || version === '01' || version === '02') {
+    throw new CTSError('Malformed Cashu keyset ID');
+  }
+  throw new CTSError(`Unrecognized Cashu keyset ID version: ${version}`);
+}
+
+/**
+ * True if `keysetId` is a canonical v3 BLS12-381 keyset id.
  */
 export function isBlsKeyset(keysetId: string): boolean {
-  if (keysetId.length !== 16 && keysetId.length !== 66) return false;
-  if (!isValidHex(keysetId)) return false;
-  return keysetId.startsWith('02');
+  try {
+    return decodeKeysetCurve(keysetId) === 'bls12-381';
+  } catch {
+    return false;
+  }
 }
 
 export const getKeysetIdInt = (keysetId: string): bigint => {
