@@ -979,41 +979,91 @@ class Mint {
     customRequest?: RequestFn,
   ): Promise<ConditionalKeysetsResponse> {
     const params = new URLSearchParams();
+    if (query.catalogue !== undefined) params.set('catalogue', String(query.catalogue));
     if (query.since !== undefined) params.set('since', String(query.since));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.active !== undefined) params.set('active', String(query.active));
+    if (query.cursor !== undefined) params.set('cursor', query.cursor);
     const suffix = params.toString();
     const path = suffix ? `/v1/conditional_keysets?${suffix}` : '/v1/conditional_keysets';
-    const data = await this.requestWithAuth<ConditionalKeysetsResponse>(
+    const data = await this.requestWithAuth<unknown>(
       'GET',
       path,
-      {},
+      { responseBodyBytesLimit: 16 * 1_024 * 1_024 },
       customRequest,
     );
-    if (!isObj(data) || !Array.isArray(data.keysets)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'getConditionalKeysets' });
+    const invalidResponse = (reason: string): never => {
+      this._logger.error('Invalid response from mint...', {
+        op: 'getConditionalKeysets',
+        reason,
+      });
       throw new CTSError('Invalid response from mint');
-    }
-    return {
-      keysets: data.keysets.map((keyset) => ({
-        ...keyset,
-        input_fee_ppk: normalizeSafeIntegerMetadata(
-          keyset.input_fee_ppk,
-          'conditional_keyset.input_fee_ppk',
-          undefined,
-        ),
-        final_expiry: normalizeSafeIntegerMetadata(
-          keyset.final_expiry,
-          'conditional_keyset.final_expiry',
-          undefined,
-        ),
-        registered_at: normalizeSafeIntegerMetadata(
-          keyset.registered_at,
-          'conditional_keyset.registered_at',
-          undefined,
-        ),
-      })),
     };
+    const requiredString = (record: Record<string, unknown>, field: string): string => {
+      const value = record[field];
+      if (typeof value !== 'string') return invalidResponse(`${field} must be a string`);
+      return value;
+    };
+    const optionalSafeInteger = (value: unknown, field: string): number | undefined => {
+      if (value === null || value === undefined) return undefined;
+      if (typeof value !== 'number' && typeof value !== 'bigint' && typeof value !== 'string') {
+        return invalidResponse(`${field} must be an integer when present`);
+      }
+      try {
+        return normalizeSafeIntegerMetadata(value, `conditional_keyset.${field}`, undefined);
+      } catch {
+        return invalidResponse(`${field} must be a safe non-negative integer when present`);
+      }
+    };
+    if (!isObj(data)) {
+      return invalidResponse('response must be an object');
+    }
+    const record = data as Record<string, unknown>;
+    if (!Array.isArray(record.keysets)) {
+      return invalidResponse('keysets must be an array');
+    }
+    const hasComplete = Object.prototype.hasOwnProperty.call(record, 'complete');
+    if (hasComplete && typeof record.complete !== 'boolean') {
+      return invalidResponse('complete must be a boolean when present');
+    }
+    const hasNextCursor = Object.prototype.hasOwnProperty.call(record, 'next_cursor');
+    if (
+      hasNextCursor &&
+      (typeof record.next_cursor !== 'string' || record.next_cursor.length === 0)
+    ) {
+      return invalidResponse('next_cursor must be a non-empty string when present');
+    }
+    if (
+      typeof record.next_cursor === 'string' &&
+      (record.next_cursor.length > 2_048 ||
+        new TextEncoder().encode(record.next_cursor).byteLength > 2_048)
+    ) {
+      return invalidResponse('next_cursor exceeds the 2048-byte UTF-8 limit');
+    }
+    const response: ConditionalKeysetsResponse = {
+      keysets: record.keysets.map((keyset) => {
+        if (!isObj(keyset)) return invalidResponse('keyset entries must be objects');
+        const keysetRecord = keyset as Record<string, unknown>;
+        if (typeof keysetRecord.active !== 'boolean') {
+          return invalidResponse('active must be a boolean');
+        }
+        return {
+          ...keysetRecord,
+          id: requiredString(keysetRecord, 'id'),
+          unit: requiredString(keysetRecord, 'unit'),
+          active: keysetRecord.active,
+          input_fee_ppk: optionalSafeInteger(keysetRecord.input_fee_ppk, 'input_fee_ppk'),
+          final_expiry: optionalSafeInteger(keysetRecord.final_expiry, 'final_expiry'),
+          condition_id: requiredString(keysetRecord, 'condition_id'),
+          outcome_collection: requiredString(keysetRecord, 'outcome_collection'),
+          outcome_collection_id: requiredString(keysetRecord, 'outcome_collection_id'),
+          registered_at: optionalSafeInteger(keysetRecord.registered_at, 'registered_at'),
+        };
+      }),
+      complete: record.complete === true,
+    };
+    if (typeof record.next_cursor === 'string') response.next_cursor = record.next_cursor;
+    return response;
   }
 
   async getConditions(
@@ -1306,9 +1356,10 @@ class Mint {
     if (this._authProvider) {
       mintInfo = await this.getLazyMintInfo(customRequest);
     }
+    const authPath = path.split('?', 1)[0];
     // Get BAT/CAT token if this endpoint is protected
-    const bat = await this.handleBlindAuth(method, path, mintInfo);
-    const cat = await this.handleClearAuth(method, path, mintInfo);
+    const bat = await this.handleBlindAuth(method, authPath, mintInfo);
+    const cat = await this.handleClearAuth(method, authPath, mintInfo);
     const headers: Record<string, string> = {
       ...(init.headers ?? {}),
       ...(bat ? { 'Blind-auth': bat } : {}),

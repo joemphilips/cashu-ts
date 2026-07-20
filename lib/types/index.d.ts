@@ -589,6 +589,8 @@ export declare class AuthManager implements AuthProvider {
 
     export declare interface ConditionalKeysetsResponse {
         keysets: ConditionalKeysetInfo[];
+        next_cursor?: string;
+        complete?: boolean;
     }
 
     export declare interface ConditionalSwapOptions {
@@ -1065,9 +1067,11 @@ export declare class AuthManager implements AuthProvider {
       export declare type G2Point = WeierstrassPoint<Fp2>;
 
       export declare interface GetConditionalKeysetsQuery {
+          catalogue?: number;
           since?: number;
           limit?: number;
           active?: boolean;
+          cursor?: string;
       }
 
       export declare interface GetConditionsQuery {
@@ -1205,6 +1209,21 @@ export declare class AuthManager implements AuthProvider {
                   }>;
               };
               '29'?: Nut29Info;
+              CTF?: {
+                  supported: boolean;
+                  dlc_version?: string;
+                  vesting_period?: number;
+                  default_keyset_creation?: string;
+                  registration_fees?: Array<{
+                      unit: string;
+                      registration_fee_base: number;
+                      registration_fee_per_keyset: number;
+                  }>;
+                  conditional_keyset_catalogue?: {
+                      version: number;
+                      max_page_size: number;
+                  };
+              };
           };
           motd?: string;
       };
@@ -3037,6 +3056,21 @@ export declare class AuthManager implements AuthProvider {
                   }>;
               };
               '29'?: Nut29Info;
+              CTF?: {
+                  supported: boolean;
+                  dlc_version?: string;
+                  vesting_period?: number;
+                  default_keyset_creation?: string;
+                  registration_fees?: Array<{
+                      unit: string;
+                      registration_fee_base: number;
+                      registration_fee_per_keyset: number;
+                  }>;
+                  conditional_keyset_catalogue?: {
+                      version: number;
+                      max_page_size: number;
+                  };
+              };
           };
           get version(): string;
           get motd(): string | undefined;

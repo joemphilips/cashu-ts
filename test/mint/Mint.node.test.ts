@@ -10,7 +10,7 @@ import {
   Amount,
   MintOperationError,
 } from '../../src';
-import type { AuthProvider, Logger, RequestFn } from '../../src';
+import type { AuthProvider, GetInfoResponse, Logger, RequestFn } from '../../src';
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import { MINTINFORESP } from '../consts';
@@ -20,6 +20,7 @@ type ReqArgs = {
   method?: string;
   requestBody?: unknown;
   headers?: Record<string, string>;
+  responseBodyBytesLimit?: number;
 };
 
 const mintUrl = 'https://localhost:3338';
@@ -89,6 +90,37 @@ describe('Mint normalization', () => {
     const cached = await mint.getLazyMintInfo();
     expect(cached).toBeInstanceOf(MintInfo);
     expect(cached.name).toBe('mint');
+  });
+
+  it('preserves the typed CTF conditional-keyset catalogue capability', () => {
+    const response: GetInfoResponse = {
+      name: 'mint',
+      pubkey: '02abcd',
+      version: 'test',
+      contact: [],
+      nuts: {
+        '4': { disabled: false, methods: [] },
+        '5': { disabled: false, methods: [] },
+        CTF: {
+          supported: true,
+          dlc_version: '0',
+          vesting_period: 2_592_000,
+          default_keyset_creation: 'none',
+          registration_fees: [
+            {
+              unit: 'sat',
+              registration_fee_base: 10,
+              registration_fee_per_keyset: 2,
+            },
+          ],
+          conditional_keyset_catalogue: { version: 1, max_page_size: 100 },
+        },
+      },
+    };
+
+    const normalized = MintInfo.normalizeInfo(response);
+
+    expect(normalized.nuts.CTF).toEqual(response.nuts.CTF);
   });
 
   it('exposes the sanitized mintUrl', () => {
@@ -1050,6 +1082,156 @@ describe('Mint normalization', () => {
     expect(response.keysets[0].input_fee_ppk).toBe(250);
     expect(response.keysets[0].final_expiry).toBe(1_754_296_607);
     expect(response.keysets[0].registered_at).toBe(1_700_000_001);
+  });
+
+  it('uses authenticated bounded catalogue requests and preserves pagination metadata', async () => {
+    const cursor = 'snapshot+/= cursor';
+    const requestSpy = vi.fn(async (options: ReqArgs) => {
+      expect(options.endpoint).toBe(
+        `${mintUrl}/v1/conditional_keysets?catalogue=1&limit=100&cursor=snapshot%2B%2F%3D+cursor`,
+      );
+      expect(options.method).toBe('GET');
+      expect(options.headers?.['Clear-auth']).toBe('cat123');
+      expect(options.responseBodyBytesLimit).toBe(16 * 1_024 * 1_024);
+      return {
+        keysets: [],
+        next_cursor: 'next+/=',
+        complete: true,
+      };
+    }) as RequestFn;
+    const authProvider: AuthProvider = {
+      getBlindAuthToken: vi.fn(async () => 'unused'),
+      getCAT: vi.fn(() => 'cat-fallback'),
+      setCAT: vi.fn(),
+      ensureCAT: vi.fn(async () => 'cat123'),
+    };
+    const mint = new Mint(mintUrl, { customRequest: requestSpy, authProvider });
+    mint.setMintInfo({
+      name: 'mint',
+      pubkey: '02abcd',
+      version: 'test',
+      contact: [],
+      nuts: {
+        '4': { disabled: false, methods: [] },
+        '5': { disabled: false, methods: [] },
+        '21': {
+          openid_discovery: 'https://auth.example/.well-known/openid-configuration',
+          client_id: 'cashu-client',
+          protected_endpoints: [{ method: 'GET', path: '/v1/conditional_keysets' }],
+        },
+      },
+    });
+
+    await expect(mint.getConditionalKeysets({ catalogue: 1, limit: 100, cursor })).resolves.toEqual(
+      {
+        keysets: [],
+        next_cursor: 'next+/=',
+        complete: true,
+      },
+    );
+  });
+
+  it('uses the query-free conditional-keyset path for blind auth', async () => {
+    const requestSpy = vi.fn(async (options: ReqArgs) => {
+      expect(options.endpoint).toBe(
+        `${mintUrl}/v1/conditional_keysets?catalogue=1&cursor=opaque%2Bcursor`,
+      );
+      expect(options.headers?.['Blind-auth']).toBe('bat123');
+      return { keysets: [], complete: false };
+    }) as RequestFn;
+    const authProvider: AuthProvider = {
+      getBlindAuthToken: vi.fn(async () => 'bat123'),
+      getCAT: vi.fn(() => undefined),
+      setCAT: vi.fn(),
+    };
+    const mint = new Mint(mintUrl, { customRequest: requestSpy, authProvider });
+    mint.setMintInfo({
+      name: 'mint',
+      pubkey: '02abcd',
+      version: 'test',
+      contact: [],
+      nuts: {
+        '4': { disabled: false, methods: [] },
+        '5': { disabled: false, methods: [] },
+        '22': {
+          bat_max_mint: 5,
+          protected_endpoints: [{ method: 'GET', path: '/v1/conditional_keysets' }],
+        },
+      },
+    });
+
+    await mint.getConditionalKeysets({ catalogue: 1, cursor: 'opaque+cursor' });
+
+    expect(authProvider.getBlindAuthToken).toHaveBeenCalledWith({
+      method: 'GET',
+      path: '/v1/conditional_keysets',
+    });
+  });
+
+  it('treats a legacy conditional-keyset response as incomplete', async () => {
+    const mint = new Mint(mintUrl, { customRequest: makeRequest({ keysets: [] }) });
+
+    await expect(mint.getConditionalKeysets()).resolves.toEqual({ keysets: [], complete: false });
+  });
+
+  it.each([null, 1, 'true', {}])(
+    'rejects malformed catalogue complete metadata: %j',
+    async (complete) => {
+      const logger = createLogger();
+      const mint = new Mint(mintUrl, {
+        customRequest: makeRequest({ keysets: [], complete }),
+        logger,
+      });
+
+      await expect(mint.getConditionalKeysets()).rejects.toThrow('Invalid response from mint');
+      expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
+        op: 'getConditionalKeysets',
+        reason: 'complete must be a boolean when present',
+      });
+    },
+  );
+
+  it.each([null, 1, {}, ''])(
+    'rejects malformed catalogue next_cursor metadata: %j',
+    async (next_cursor) => {
+      const mint = new Mint(mintUrl, {
+        customRequest: makeRequest({ keysets: [], complete: false, next_cursor }),
+      });
+
+      await expect(mint.getConditionalKeysets()).rejects.toThrow('Invalid response from mint');
+    },
+  );
+
+  it('bounds catalogue cursors by UTF-8 bytes rather than JavaScript string length', async () => {
+    const oversizedMultibyteCursor = '界'.repeat(683);
+    expect(oversizedMultibyteCursor.length).toBeLessThan(2_048);
+    expect(new TextEncoder().encode(oversizedMultibyteCursor)).toHaveLength(2_049);
+    const mint = new Mint(mintUrl, {
+      customRequest: makeRequest({
+        keysets: [],
+        complete: false,
+        next_cursor: oversizedMultibyteCursor,
+      }),
+    });
+
+    await expect(mint.getConditionalKeysets()).rejects.toThrow('Invalid response from mint');
+  });
+
+  it('preserves a catalogue cursor at the 2048-byte UTF-8 boundary', async () => {
+    const maximumMultibyteCursor = 'é'.repeat(1_024);
+    const mint = new Mint(mintUrl, {
+      customRequest: makeRequest({
+        keysets: [],
+        complete: false,
+        next_cursor: maximumMultibyteCursor,
+      }),
+    });
+
+    await expect(mint.getConditionalKeysets()).resolves.toEqual({
+      keysets: [],
+      complete: false,
+      next_cursor: maximumMultibyteCursor,
+    });
   });
 
   it('wraps condition registration with requested outcome collections', async () => {

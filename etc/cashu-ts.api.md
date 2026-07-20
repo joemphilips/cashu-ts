@@ -311,7 +311,11 @@ export interface ConditionalKeysetMetadata {
 // @public (undocumented)
 export interface ConditionalKeysetsResponse {
     // (undocumented)
+    complete?: boolean;
+    // (undocumented)
     keysets: ConditionalKeysetInfo[];
+    // (undocumented)
+    next_cursor?: string;
 }
 
 // @public (undocumented)
@@ -614,6 +618,10 @@ export interface GetConditionalKeysetsQuery {
     // (undocumented)
     active?: boolean;
     // (undocumented)
+    catalogue?: number;
+    // (undocumented)
+    cursor?: string;
+    // (undocumented)
     limit?: number;
     // (undocumented)
     since?: number;
@@ -731,6 +739,21 @@ export type GetInfoResponse = {
             }>;
         };
         '29'?: Nut29Info;
+        CTF?: {
+            supported: boolean;
+            dlc_version?: string;
+            vesting_period?: number;
+            default_keyset_creation?: string;
+            registration_fees?: Array<{
+                unit: string;
+                registration_fee_base: number;
+                registration_fee_per_keyset: number;
+            }>;
+            conditional_keyset_catalogue?: {
+                version: number;
+                max_page_size: number;
+            };
+        };
     };
     motd?: string;
 };
@@ -1339,6 +1362,21 @@ export class MintInfo {
             }>;
         };
         '29'?: Nut29Info;
+        CTF?: {
+            supported: boolean;
+            dlc_version?: string;
+            vesting_period?: number;
+            default_keyset_creation?: string;
+            registration_fees?: Array<{
+                unit: string;
+                registration_fee_base: number;
+                registration_fee_per_keyset: number;
+            }>;
+            conditional_keyset_catalogue?: {
+                version: number;
+                max_page_size: number;
+            };
+        };
     };
     // (undocumented)
     get pubkey(): string;

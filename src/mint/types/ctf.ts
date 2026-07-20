@@ -42,13 +42,17 @@ export interface ConditionalKeysetInfo {
 }
 
 export interface GetConditionalKeysetsQuery {
+  catalogue?: number;
   since?: number;
   limit?: number;
   active?: boolean;
+  cursor?: string;
 }
 
 export interface ConditionalKeysetsResponse {
   keysets: ConditionalKeysetInfo[];
+  next_cursor?: string;
+  complete?: boolean;
 }
 
 export interface GetConditionsQuery {

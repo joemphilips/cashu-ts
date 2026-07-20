@@ -80,6 +80,21 @@ export type GetInfoResponse = {
       protected_endpoints: Array<{ method: 'GET' | 'POST'; path: string }>;
     };
     '29'?: Nut29Info;
+    CTF?: {
+      supported: boolean;
+      dlc_version?: string;
+      vesting_period?: number;
+      default_keyset_creation?: string;
+      registration_fees?: Array<{
+        unit: string;
+        registration_fee_base: number;
+        registration_fee_per_keyset: number;
+      }>;
+      conditional_keyset_catalogue?: {
+        version: number;
+        max_page_size: number;
+      };
+    };
   };
   motd?: string;
 };
