@@ -570,8 +570,8 @@ describe('Mint normalization', () => {
 
     await expect(mint.restore({ outputs: [] })).rejects.toThrow('Invalid response from mint');
     expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
-      data: { outputs: [] },
       op: 'restore',
+      reason: 'response must contain outputs and signatures arrays',
     });
   });
 
@@ -584,8 +584,8 @@ describe('Mint normalization', () => {
 
     await expect(mint.check({ Ys: [] })).rejects.toThrow('Invalid response from mint');
     expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
-      data: { invalid: true },
       op: 'check',
+      reason: 'response must contain a states array',
     });
   });
 
@@ -604,16 +604,80 @@ describe('Mint normalization', () => {
 
   it('throws on invalid getKeySets responses', async () => {
     const logger = createLogger();
+    const rawSentinel = 'must-not-appear-in-logs';
     const mint = new Mint(mintUrl, {
-      customRequest: makeRequest({ invalid: true }),
+      customRequest: makeRequest({ invalid: rawSentinel }),
       logger,
     });
 
     await expect(mint.getKeySets()).rejects.toThrow('Invalid response from mint');
     expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
-      data: { invalid: true },
       op: 'getKeySets',
+      reason: 'response must contain a keysets array',
     });
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain(rawSentinel);
+  });
+
+  it('throws on invalid getKeys responses without logging the raw body', async () => {
+    const logger = createLogger();
+    const rawSentinel = 'must-not-appear-in-logs';
+    const mint = new Mint(mintUrl, {
+      customRequest: makeRequest({ invalid: rawSentinel }),
+      logger,
+    });
+
+    await expect(mint.getKeys()).rejects.toThrow('Invalid response from mint');
+    expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
+      op: 'getKeys',
+      reason: 'response must contain a keysets array',
+    });
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain(rawSentinel);
+  });
+
+  it('createRequestWithOptions preserves stricter endpoint body bounds and carries body metadata', async () => {
+    const customRequest = vi.fn(async () => ({ ok: true })) as RequestFn;
+    const onResponseBody = vi.fn();
+    const mint = new Mint(mintUrl, { customRequest });
+    const decorated = mint.createRequestWithOptions({
+      responseBodyBytesLimit: 1_024,
+      onResponseBody,
+    });
+
+    await decorated({
+      endpoint: mintUrl + '/v1/test',
+      responseBodyBytesLimit: 64,
+    });
+
+    expect(customRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ responseBodyBytesLimit: 64, onResponseBody }),
+    );
+  });
+
+  it('createRequestWithOptions composes accounting hooks fail closed', async () => {
+    const endpointHook = vi.fn(() => {
+      throw new Error('accounting failed');
+    });
+    const decoratorHook = vi.fn();
+    const customRequest = vi.fn(async (options: Parameters<RequestFn>[0]) => {
+      options.onResponseBody?.({
+        endpoint: options.endpoint,
+        status: 200,
+        requestId: 'request-1',
+        attempt: 1,
+        decodedBodyBytes: 2,
+        complete: true,
+        disposition: 'complete',
+      });
+      return { ok: true };
+    }) as RequestFn;
+    const mint = new Mint(mintUrl, { customRequest });
+    const decorated = mint.createRequestWithOptions({ onResponseBody: decoratorHook });
+
+    await expect(
+      decorated({ endpoint: mintUrl + '/v1/test', onResponseBody: endpointHook }),
+    ).rejects.toThrow(/accounting callback failed/i);
+    expect(endpointHook).toHaveBeenCalledOnce();
+    expect(decoratorHook).toHaveBeenCalledOnce();
   });
 
   it('normalizes melt quote request options for amountless and mpp values', async () => {

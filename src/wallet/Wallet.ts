@@ -91,6 +91,7 @@ import {
   type SwapPreview,
   type MintPreview,
   type BatchMintPreview,
+  type BatchRestoreConfig,
 } from './types';
 import { WalletCounters } from './WalletCounters';
 import { WalletEvents } from './WalletEvents';
@@ -100,13 +101,21 @@ import { WalletOps } from './WalletOps';
 
 function boundedRequest(
   mint: Mint,
-  options: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'> | undefined,
+  options:
+    | Pick<
+        RequestOptions,
+        'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'
+      >
+    | undefined,
 ): RequestFn | undefined {
   if (!options) return undefined;
   return mint.createRequestWithOptions(options);
 }
 
 const PENDING_KEYSET_ID = '__PENDING__';
+const MAX_RESTORE_BATCH_SIZE = 300;
+const MAX_BATCH_RESTORE_REQUESTS = 1_000;
+const MAX_BATCH_RESTORE_COUNTER = 1_000_000;
 
 export interface ConditionalSwapOutputGroup {
   label: string;
@@ -381,7 +390,10 @@ class Wallet {
    */
   async loadMint(
     forceRefresh?: boolean,
-    requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>,
+    requestOptions?: Pick<
+      RequestOptions,
+      'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'
+    >,
   ): Promise<void> {
     const customRequest = boundedRequest(this.mint, requestOptions);
     const promises = [];
@@ -1789,21 +1801,72 @@ class Wallet {
    *   is `0`
    * @param [keysetId] Which keysetId to use for the restoration. If none is passed the instance's
    *   default one will be used.
+   * @param [config] Absolute request-count, counter-horizon, abort, and transport bounds.
    */
   async batchRestore(
     gapLimit = 300,
     batchSize = 300,
     counter = 0,
     keysetId?: string,
+    config: BatchRestoreConfig = {},
   ): Promise<{ proofs: Proof[]; lastCounterWithSignature?: number }> {
+    this.failIf(
+      !Number.isSafeInteger(gapLimit) || gapLimit < 1,
+      'Batch restore gap limit must be a positive safe integer',
+    );
+    this.failIf(
+      !Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > MAX_RESTORE_BATCH_SIZE,
+      `Batch restore size must be a safe integer between 1 and ${MAX_RESTORE_BATCH_SIZE}`,
+    );
+    this.failIf(
+      !Number.isSafeInteger(counter) || counter < 0,
+      'Batch restore counter must be a non-negative safe integer',
+    );
+    const maxBatches = config.maxBatches ?? MAX_BATCH_RESTORE_REQUESTS;
+    const maxCounter = config.maxCounter ?? MAX_BATCH_RESTORE_COUNTER;
+    this.failIf(
+      !Number.isSafeInteger(maxBatches) ||
+        maxBatches < 1 ||
+        maxBatches > MAX_BATCH_RESTORE_REQUESTS,
+      `Batch restore maximum batches must be between 1 and ${MAX_BATCH_RESTORE_REQUESTS}`,
+    );
+    this.failIf(
+      !Number.isSafeInteger(maxCounter) || maxCounter < 1 || maxCounter > MAX_BATCH_RESTORE_COUNTER,
+      `Batch restore counter horizon must be between 1 and ${MAX_BATCH_RESTORE_COUNTER}`,
+    );
     const requiredEmptyBatches = Math.ceil(gapLimit / batchSize);
+    this.failIf(
+      requiredEmptyBatches > maxBatches,
+      'Batch restore gap limit cannot be reached within the maximum batch count',
+    );
     const restoredProofs: Proof[] = [];
 
     let lastCounterWithSignature: undefined | number;
     let emptyBatchesFound = 0;
+    let batchesRequested = 0;
 
     while (emptyBatchesFound < requiredEmptyBatches) {
-      const restoreRes = await this.restore(counter, batchSize, { keysetId });
+      this.failIf(
+        batchesRequested >= maxBatches,
+        'Batch restore reached the maximum batch count before finding the gap limit',
+      );
+      this.failIf(
+        counter >= maxCounter || counter > maxCounter - batchSize,
+        'Batch restore would cross the configured counter horizon',
+      );
+      this.failIf(
+        config.requestOptions?.signal?.aborted === true,
+        'Batch restore aborted by caller',
+      );
+      const restoreRes = await this.restore(counter, batchSize, {
+        keysetId,
+        requestOptions: config.requestOptions,
+      });
+      this.failIf(
+        config.requestOptions?.signal?.aborted === true,
+        'Batch restore aborted by caller',
+      );
+      batchesRequested++;
       if (restoreRes.proofs.length > 0) {
         emptyBatchesFound = 0;
         restoredProofs.push(...restoreRes.proofs);
@@ -1829,7 +1892,19 @@ class Wallet {
     config?: RestoreConfig,
   ): Promise<{ proofs: Proof[]; lastCounterWithSignature?: number }> {
     this.failIfNullish(this._seed, 'Cashu Wallet must be initialized with a seed to use restore');
-    const { keysetId } = config || {};
+    this.failIf(
+      !Number.isSafeInteger(start) || start < 0,
+      'Restore start must be a non-negative safe integer',
+    );
+    this.failIf(
+      !Number.isSafeInteger(count) || count < 1 || count > MAX_RESTORE_BATCH_SIZE,
+      `Restore count must be a safe integer between 1 and ${MAX_RESTORE_BATCH_SIZE}`,
+    );
+    this.failIf(
+      count > 0 && start > Number.MAX_SAFE_INTEGER - (count - 1),
+      'Restore counter range exceeds the safe integer limit',
+    );
+    const { keysetId, requestOptions } = config || {};
 
     // Ensure we have keys - wallet only loads active keysets by default
     await this._keyChain.ensureKeysetKeys(keysetId ?? this.keysetId);
@@ -1846,23 +1921,19 @@ class Wallet {
       zeros,
     );
 
-    const { outputs, signatures } = await this.mint.restore({
-      outputs: outputData.map((d) => d.blindedMessage),
-    });
-
-    const signatureMap: { [sig: string]: SerializedBlindedSignature } = {};
-    outputs.forEach((o, i) => (signatureMap[o.B_] = signatures[i]));
+    const { outputs, signatures } = await this.mint.restore(
+      { outputs: outputData.map((d) => d.blindedMessage) },
+      boundedRequest(this.mint, requestOptions),
+    );
+    const restored = this.bindRestoreResponse(outputs, signatures, outputData, keyset);
 
     const restoredProofs: Proof[] = [];
     let lastCounterWithSignature: number | undefined;
 
-    for (let i = 0; i < outputData.length; i++) {
-      const matchingSig = signatureMap[outputData[i].blindedMessage.B_];
-      if (matchingSig) {
-        lastCounterWithSignature = start + i;
-        outputData[i].blindedMessage.amount = matchingSig.amount;
-        restoredProofs.push(outputData[i].toProof(matchingSig, keyset));
-      }
+    for (const { data, index, signature } of restored) {
+      lastCounterWithSignature = start + index;
+      data.blindedMessage.amount = signature.amount;
+      restoredProofs.push(data.toProof(signature, keyset));
     }
 
     return {
@@ -2138,6 +2209,68 @@ class Wallet {
         `Mint supports NUT-12, but returned a signature without DLEQ proof at index ${i}. Inputs may already be spent; if the wallet is seeded, try restoring (NUT-09) to recover.`,
       );
     }
+  }
+
+  private bindRestoreResponse(
+    outputs: Array<{ B_: string; id: string; amount: Amount }>,
+    signatures: SerializedBlindedSignature[],
+    outputData: OutputDataLike[],
+    keyset: Keyset,
+  ): Array<{ data: OutputDataLike; index: number; signature: SerializedBlindedSignature }> {
+    this.failIf(
+      outputs.length !== signatures.length,
+      'Mint restore response must contain one signature for every returned output',
+    );
+    this.failIf(
+      outputs.length > outputData.length || outputs.length > MAX_RESTORE_BATCH_SIZE,
+      'Mint restore response contains more outputs than requested',
+    );
+    const requestedByBlindedMessage = new Map(
+      outputData.map((data, index) => [data.blindedMessage.B_, { data, index }] as const),
+    );
+    this.failIf(
+      requestedByBlindedMessage.size !== outputData.length,
+      'Restore generated duplicate blinded messages',
+    );
+    const seenOutputs = new Set<string>();
+    const seenSignatures = new Set<string>();
+    const restored = outputs.map((output, responseIndex) => {
+      this.failIf(
+        typeof output.B_ !== 'string' || output.B_.length === 0 || seenOutputs.has(output.B_),
+        `Mint restore response contains an invalid or duplicate output at index ${responseIndex}`,
+      );
+      seenOutputs.add(output.B_);
+      const requested = requestedByBlindedMessage.get(output.B_);
+      this.failIfNullish(
+        requested,
+        `Mint restore response contains an output that was not requested at index ${responseIndex}`,
+      );
+      this.failIf(
+        output.id !== requested.data.blindedMessage.id ||
+          !output.amount.equals(requested.data.blindedMessage.amount),
+        `Mint restore output metadata does not match the request at index ${responseIndex}`,
+      );
+      const signature = signatures[responseIndex];
+      this.failIfNullish(
+        signature,
+        `Mint restore response is missing a signature at index ${responseIndex}`,
+      );
+      this.failIf(
+        signature.id !== output.id ||
+          !Object.prototype.hasOwnProperty.call(keyset.keys, signature.amount.toString()),
+        `Mint restore signature uses a foreign keyset or unknown amount at index ${responseIndex}`,
+      );
+      this.failIf(
+        typeof signature.C_ !== 'string' ||
+          signature.C_.length === 0 ||
+          seenSignatures.has(signature.C_),
+        `Mint restore response contains an invalid or duplicate signature at index ${responseIndex}`,
+      );
+      seenSignatures.add(signature.C_);
+      return { ...requested, signature };
+    });
+    restored.sort((left, right) => left.index - right.index);
+    return restored;
   }
 
   private validateMintQuoteAvailableAmount(
@@ -3262,7 +3395,10 @@ class Wallet {
    */
   async checkProofsStates(
     proofs: Array<Pick<ProofLike, 'secret' | 'id'>>,
-    requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>,
+    requestOptions?: Pick<
+      RequestOptions,
+      'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'
+    >,
   ): Promise<ProofState[]> {
     const enc = new TextEncoder();
     const Ys = proofs.map((p) =>
@@ -3270,6 +3406,7 @@ class Wallet {
         ? hashToCurveBls(enc.encode(p.secret)).toHex(true)
         : hashToCurve(enc.encode(p.secret)).toHex(true),
     );
+    this.failIf(new Set(Ys).size !== Ys.length, 'Cannot check duplicate proof Ys');
     // TODO: Replace this with a value from the info endpoint of the mint eventually
     const BATCH_SIZE = 100;
     const states: ProofState[] = [];
@@ -3279,13 +3416,36 @@ class Wallet {
         { Ys: YsSlice },
         boundedRequest(this.mint, requestOptions),
       );
-      const stateMap: { [y: string]: ProofState } = {};
-      batchStates.forEach((s) => {
-        stateMap[s.Y] = s;
+      this.failIf(
+        batchStates.length !== YsSlice.length,
+        'Mint checkstate response does not match the requested proof set',
+      );
+      const requestedYs = new Set(YsSlice);
+      const stateMap = new Map<string, ProofState>();
+      batchStates.forEach((state, stateIndex) => {
+        this.failIf(
+          typeof state.Y !== 'string' || !requestedYs.has(state.Y),
+          `Mint checkstate response contains an invalid or foreign Y at index ${stateIndex}`,
+        );
+        this.failIf(
+          stateMap.has(state.Y),
+          `Mint checkstate response contains a duplicate Y at index ${stateIndex}`,
+        );
+        switch (state.state) {
+          case CheckStateEnum.UNSPENT:
+          case CheckStateEnum.PENDING:
+          case CheckStateEnum.SPENT:
+            break;
+          default:
+            throw new CTSError(
+              `Mint checkstate response contains an unknown state at index ${stateIndex}`,
+            );
+        }
+        stateMap.set(state.Y, state);
       });
       for (let j = 0; j < YsSlice.length; j++) {
-        const state = stateMap[YsSlice[j]];
-        this.failIfNullish(state, 'Could not find state for proof with Y: ' + YsSlice[j]);
+        const state = stateMap.get(YsSlice[j]);
+        this.failIfNullish(state, `Mint checkstate response is missing state at index ${j}`);
         states.push(state);
       }
     }

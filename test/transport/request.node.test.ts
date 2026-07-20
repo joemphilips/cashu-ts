@@ -5,6 +5,7 @@ import {
   NetworkError,
   MintOperationError,
   RateLimitError,
+  type ResponseBodyMeta,
   type ResponseMeta,
 } from '../../src';
 import { HttpResponse, http, delay } from 'msw';
@@ -16,6 +17,7 @@ import {
   detectBrowserLike,
   buildRequestHeaders,
   errorMessage,
+  composeResponseBodyAccountingHooks,
 } from '../../src/transport/request';
 import { MINTCACHE } from '../consts';
 import { Nut19Policy } from '../../src';
@@ -352,12 +354,22 @@ describe('requests', { timeout: 7500 }, () => {
         throw bodyReadError;
       }),
     } as unknown as Response);
+    const accounting = vi.fn();
 
     try {
-      const thrown = await request({ endpoint }).catch((e) => e);
+      const thrown = await request({ endpoint, onResponseBody: accounting }).catch((e) => e);
       expect(thrown).toBeInstanceOf(HttpResponseError);
       expect(thrown).toMatchObject({ message: 'bad response', status: 503 });
       expect(thrown.cause).toBe(bodyReadError);
+      expect(accounting).toHaveBeenCalledOnce();
+      expect(accounting).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 503,
+          decodedBodyBytes: 0,
+          complete: false,
+          disposition: 'read-failed',
+        }),
+      );
     } finally {
       fetchMock.mockRestore();
     }
@@ -1555,5 +1567,261 @@ describe('onResponseMeta callback', () => {
       'callback failed',
       expect.objectContaining({ scope: 'per-request' }),
     );
+  });
+});
+
+describe('onResponseBody callback', () => {
+  test('reports exact decoded success-body bytes including UTF-8 and whitespace', async () => {
+    const endpoint = mintUrl + '/v1/body-bytes';
+    const body = ' \n {"value":"é"} \t ';
+    server.use(http.get(endpoint, () => new HttpResponse(body, { status: 200 })));
+    let captured: ResponseBodyMeta | undefined;
+
+    await request({
+      endpoint,
+      responseBodyBytesLimit: 1_024,
+      onResponseBody: (meta) => (captured = meta),
+    });
+
+    expect(captured).toEqual({
+      endpoint,
+      status: 200,
+      requestId: expect.any(String),
+      attempt: 1,
+      decodedBodyBytes: new TextEncoder().encode(body).byteLength,
+      complete: true,
+      disposition: 'complete',
+    });
+  });
+
+  test('reports exact decoded error-body bytes before rejecting', async () => {
+    const endpoint = mintUrl + '/v1/body-bytes-error';
+    const body = '  {"error":"no"}\n\n';
+    server.use(http.get(endpoint, () => new HttpResponse(body, { status: 400 })));
+    let captured: ResponseBodyMeta | undefined;
+
+    await expect(
+      request({ endpoint, onResponseBody: (meta) => (captured = meta) }),
+    ).rejects.toThrow('no');
+
+    expect(captured).toEqual({
+      endpoint,
+      status: 400,
+      requestId: expect.any(String),
+      attempt: 1,
+      decodedBodyBytes: new TextEncoder().encode(body).byteLength,
+      complete: true,
+      disposition: 'complete',
+    });
+  });
+
+  test('composes per-request and global body callbacks safely', async () => {
+    const endpoint = mintUrl + '/v1/body-bytes-compose';
+    const body = '{"ok":true}';
+    server.use(http.get(endpoint, () => new HttpResponse(body, { status: 200 })));
+    const perRequest = vi.fn();
+    const global = vi.fn();
+    setGlobalRequestOptions({ onResponseBody: global });
+
+    await request({ endpoint, onResponseBody: perRequest });
+
+    expect(perRequest).toHaveBeenCalledOnce();
+    expect(global).toHaveBeenCalledOnce();
+    expect(perRequest.mock.calls[0][0].decodedBodyBytes).toBe(body.length);
+    expect(global.mock.calls[0][0].decodedBodyBytes).toBe(body.length);
+  });
+
+  test('a throwing per-request body callback fails closed without suppressing the global callback', async () => {
+    const endpoint = mintUrl + '/v1/body-bytes-safe-compose';
+    server.use(http.get(endpoint, () => HttpResponse.json({ ok: true })));
+    const global = vi.fn();
+    const warn = vi.fn();
+    setRequestLogger({ ...NULL_LOGGER, warn });
+    setGlobalRequestOptions({ onResponseBody: global });
+
+    await expect(
+      request({
+        endpoint,
+        onResponseBody: () => {
+          throw new Error('body callback failed');
+        },
+      }),
+    ).rejects.toThrow(/response body accounting callback failed/i);
+
+    expect(global).toHaveBeenCalledOnce();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  test('rejects async accounting hooks instead of accepting unobserved work', async () => {
+    const endpoint = mintUrl + '/v1/body-bytes-async';
+    server.use(http.get(endpoint, () => HttpResponse.json({ ok: true })));
+
+    await expect(request({ endpoint, onResponseBody: async () => undefined })).rejects.toThrow(
+      /must be synchronous/i,
+    );
+  });
+
+  test('honors an abort triggered by accounting before accepting the response', async () => {
+    const endpoint = mintUrl + '/v1/body-bytes-abort';
+    server.use(http.get(endpoint, () => HttpResponse.json({ ok: true })));
+    const controller = new AbortController();
+
+    await expect(
+      request({
+        endpoint,
+        signal: controller.signal,
+        onResponseBody: () => controller.abort(),
+      }),
+    ).rejects.toThrow(/aborted by caller/i);
+  });
+
+  test('accounts a Content-Length rejection exactly once without claiming unread bytes', async () => {
+    const endpoint = mintUrl + '/v1/body-bytes-content-length';
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Length': '1024' }),
+      body: { cancel },
+    } as unknown as Response);
+    const accounting = vi.fn();
+
+    try {
+      await expect(
+        request({ endpoint, responseBodyBytesLimit: 64, onResponseBody: accounting }),
+      ).rejects.toThrow('bad response');
+      expect(accounting).toHaveBeenCalledOnce();
+      expect(accounting).toHaveBeenCalledWith(
+        expect.objectContaining({
+          endpoint,
+          status: 200,
+          attempt: 1,
+          decodedBodyBytes: 0,
+          complete: false,
+          disposition: 'limit-exceeded',
+        }),
+      );
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  test('accounts bytes actually read when a chunked response crosses the limit', async () => {
+    const endpoint = mintUrl + '/v1/body-bytes-chunked';
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('12345'));
+      },
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(body, { status: 200 }));
+    const accounting = vi.fn();
+
+    try {
+      await expect(
+        request({ endpoint, responseBodyBytesLimit: 4, onResponseBody: accounting }),
+      ).rejects.toThrow('bad response');
+      expect(accounting).toHaveBeenCalledOnce();
+      expect(accounting).toHaveBeenCalledWith(
+        expect.objectContaining({
+          decodedBodyBytes: 5,
+          complete: false,
+          disposition: 'limit-exceeded',
+        }),
+      );
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  test('accounts every retry attempt with stable request identity', async () => {
+    const endpoint = mintUrl + '/v1/body-bytes-retry';
+    let requestCount = 0;
+    server.use(
+      http.get(endpoint, () => {
+        requestCount++;
+        return requestCount === 1
+          ? HttpResponse.json({ error: 'retry' }, { status: 500 })
+          : HttpResponse.json({ ok: true });
+      }),
+    );
+    const accounting = vi.fn();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    try {
+      await request({
+        endpoint,
+        ttl: 1_000,
+        cached_endpoints: [{ method: 'GET', path: '/v1/body-bytes-retry' }],
+        onResponseBody: accounting,
+      });
+      expect(accounting).toHaveBeenCalledTimes(2);
+      const first = accounting.mock.calls[0][0] as ResponseBodyMeta;
+      const second = accounting.mock.calls[1][0] as ResponseBodyMeta;
+      expect(first).toMatchObject({ status: 500, attempt: 1, complete: true });
+      expect(second).toMatchObject({ status: 200, attempt: 2, complete: true });
+      expect(first.requestId).toBe(second.requestId);
+    } finally {
+      random.mockRestore();
+    }
+  });
+
+  test('does not retry an accounting failure when the body read also times out', async () => {
+    const endpoint = mintUrl + '/v1/body-bytes-timeout-accounting';
+    let requestCount = 0;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      requestCount++;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener(
+            'abort',
+            () => controller.error(new Error('body read timed out')),
+            { once: true },
+          );
+        },
+      });
+      return new Response(body, { status: 200 });
+    });
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    try {
+      await expect(
+        request({
+          endpoint,
+          requestTimeout: 1,
+          ttl: 20,
+          cached_endpoints: [{ method: 'GET', path: '/v1/body-bytes-timeout-accounting' }],
+          onResponseBody: () => {
+            throw new Error('cumulative byte budget exhausted');
+          },
+        }),
+      ).rejects.toThrow(/response body accounting callback failed/i);
+      expect(requestCount).toBe(1);
+    } finally {
+      random.mockRestore();
+      fetchMock.mockRestore();
+    }
+  });
+
+  test('deduplicates the same accounting hook through nested composition', () => {
+    const shared = vi.fn();
+    const endpoint = vi.fn();
+    const nested = composeResponseBodyAccountingHooks(endpoint, shared);
+    const composed = composeResponseBodyAccountingHooks(nested, shared);
+    const meta: ResponseBodyMeta = {
+      endpoint: mintUrl + '/v1/nested-accounting',
+      status: 200,
+      requestId: 'request-1',
+      attempt: 1,
+      decodedBodyBytes: 2,
+      complete: true,
+      disposition: 'complete',
+    };
+
+    composed?.(meta);
+
+    expect(endpoint).toHaveBeenCalledOnce();
+    expect(shared).toHaveBeenCalledOnce();
   });
 });

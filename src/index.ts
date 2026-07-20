@@ -131,7 +131,14 @@ export type {
 export type { OutputDataCreator } from './model/OutputDataCreator';
 export { MintInfo } from './model/MintInfo';
 export { WSConnection, injectWebSocketImpl, setGlobalRequestOptions } from './transport';
-export type { RequestFn, RequestArgs, RequestOptions, ResponseMeta } from './transport';
+export type {
+  RequestFn,
+  RequestArgs,
+  RequestOptions,
+  ResponseMeta,
+  ResponseBodyMeta,
+  ResponseBodyDisposition,
+} from './transport';
 export {
   SigAll,
   type SigAllApi,

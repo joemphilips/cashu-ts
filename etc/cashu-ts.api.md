@@ -213,6 +213,13 @@ export type BatchMintRequest = {
 };
 
 // @public
+export type BatchRestoreConfig = {
+    maxBatches?: number;
+    maxCounter?: number;
+    requestOptions?: RestoreConfig['requestOptions'];
+};
+
+// @public
 export function batchVerifyUnblindedSignatureBls(items: Array<{
     K2: G2Point;
     C: G1Point;
@@ -1178,7 +1185,7 @@ class Mint {
     createMintQuoteBolt11(mintQuotePayload: MintQuoteBolt11Request, customRequest?: RequestFn): Promise<MintQuoteBolt11Response>;
     createMintQuoteBolt12(mintQuotePayload: MintQuoteBolt12Request, customRequest?: RequestFn): Promise<MintQuoteBolt12Response>;
     createMintQuoteOnchain(mintQuotePayload: MintQuoteOnchainRequest, customRequest?: RequestFn): Promise<MintQuoteOnchainResponse>;
-    createRequestWithOptions(options: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>): RequestFn;
+    createRequestWithOptions(options: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'>): RequestFn;
     ctfConvert(convertPayload: CtfConvertRequest, customRequest?: RequestFn): Promise<CtfConvertResponse>;
     disconnectWebSocket(): void;
     getConditionalKeysets(query?: GetConditionalKeysetsQuery, customRequest?: RequestFn): Promise<ConditionalKeysetsResponse>;
@@ -2071,6 +2078,21 @@ export type RequestOptions = RequestArgs & Omit<RequestInit, 'body' | 'headers'>
     requestTimeout?: number;
     responseBodyBytesLimit?: number;
     onResponseMeta?: (meta: ResponseMeta) => void;
+    onResponseBody?: (meta: ResponseBodyMeta) => void;
+};
+
+// @public (undocumented)
+export type ResponseBodyDisposition = 'complete' | 'limit-exceeded' | 'read-failed';
+
+// @public
+export type ResponseBodyMeta = {
+    endpoint: string;
+    status: number;
+    requestId: string;
+    attempt: number;
+    decodedBodyBytes: number;
+    complete: boolean;
+    disposition: ResponseBodyDisposition;
 };
 
 // @public
@@ -2086,6 +2108,7 @@ export type ResponseMeta = {
 // @public (undocumented)
 export type RestoreConfig = {
     keysetId?: string;
+    requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'>;
 };
 
 // @public (undocumented)
@@ -2441,7 +2464,7 @@ class Wallet {
         enableCtf?: boolean;
         logger?: Logger;
     });
-    batchRestore(gapLimit?: number, batchSize?: number, counter?: number, keysetId?: string): Promise<{
+    batchRestore(gapLimit?: number, batchSize?: number, counter?: number, keysetId?: string, config?: BatchRestoreConfig): Promise<{
         proofs: Proof[];
         lastCounterWithSignature?: number;
     }>;
@@ -2460,7 +2483,7 @@ class Wallet {
     checkMintQuoteBolt11(quote: string | MintQuoteBolt11Response): Promise<MintQuoteBolt11Response>;
     checkMintQuoteBolt12(quote: string): Promise<MintQuoteBolt12Response>;
     checkMintQuoteOnchain(quote: string): Promise<MintQuoteOnchainResponse>;
-    checkProofsStates(proofs: Array<Pick<ProofLike, 'secret' | 'id'>>, requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>): Promise<ProofState[]>;
+    checkProofsStates(proofs: Array<Pick<ProofLike, 'secret' | 'id'>>, requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'>): Promise<ProofState[]>;
     completeBatchMint(batchPreview: BatchMintPreview<Pick<MintQuoteBaseResponse, 'quote'>>): Promise<Proof[]>;
     // (undocumented)
     completeConditionalSwap(preview: ConditionalSwapPreview): Promise<Record<string, Proof[]>>;
@@ -2506,7 +2529,7 @@ class Wallet {
     }>;
     get keyChain(): KeyChain;
     get keysetId(): string;
-    loadMint(forceRefresh?: boolean, requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>): Promise<void>;
+    loadMint(forceRefresh?: boolean, requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'>): Promise<void>;
     loadMintFromCache(mintInfo: GetInfoResponse, cache: KeyChainCache): void;
     // (undocumented)
     get logger(): Logger;

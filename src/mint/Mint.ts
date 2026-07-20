@@ -45,6 +45,7 @@ import request, {
   type RequestOptions,
   type ResponseMeta,
 } from '../transport';
+import { composeResponseBodyAccountingHooks } from '../transport/request';
 import {
   isObj,
   joinUrls,
@@ -120,10 +121,34 @@ class Mint {
    * Decorates the configured transport without replacing a native/custom adapter.
    */
   createRequestWithOptions(
-    options: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>,
+    options: Pick<
+      RequestOptions,
+      'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'
+    >,
   ): RequestFn {
-    return <T = unknown>(requestOptions: RequestOptions): Promise<T> =>
-      this._request<T>({ ...requestOptions, ...options });
+    return <T = unknown>(requestOptions: RequestOptions): Promise<T> => {
+      const merged = { ...requestOptions, ...options };
+      if (
+        requestOptions.responseBodyBytesLimit !== undefined &&
+        options.responseBodyBytesLimit !== undefined
+      ) {
+        merged.responseBodyBytesLimit = Math.min(
+          requestOptions.responseBodyBytesLimit,
+          options.responseBodyBytesLimit,
+        );
+      }
+      if (
+        requestOptions.onResponseBody &&
+        options.onResponseBody &&
+        requestOptions.onResponseBody !== options.onResponseBody
+      ) {
+        merged.onResponseBody = composeResponseBodyAccountingHooks(
+          requestOptions.onResponseBody,
+          options.onResponseBody,
+        );
+      }
+      return this._request<T>(merged);
+    };
   }
 
   /**
@@ -863,7 +888,10 @@ class Mint {
     );
 
     if (!isObj(data) || !Array.isArray(data?.states)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'check' });
+      this._logger.error('Invalid response from mint...', {
+        op: 'check',
+        reason: 'response must contain a states array',
+      });
       throw new CTSError('Invalid response from mint');
     }
 
@@ -906,7 +934,10 @@ class Mint {
     });
 
     if (!isObj(data) || !Array.isArray(data.keysets)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'getKeys' });
+      this._logger.error('Invalid response from mint...', {
+        op: 'getKeys',
+        reason: 'response must contain a keysets array',
+      });
       throw new CTSError('Invalid response from mint');
     }
 
@@ -929,7 +960,10 @@ class Mint {
       onResponseMeta: this._captureResponseMetadata,
     });
     if (!isObj(data) || !Array.isArray(data.keysets)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'getKeySets' });
+      this._logger.error('Invalid response from mint...', {
+        op: 'getKeySets',
+        reason: 'response must contain a keysets array',
+      });
       throw new CTSError('Invalid response from mint');
     }
     return {
@@ -958,7 +992,10 @@ class Mint {
     });
 
     if (!isObj(data) || !Array.isArray(data?.outputs) || !Array.isArray(data?.signatures)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'restore' });
+      this._logger.error('Invalid response from mint...', {
+        op: 'restore',
+        reason: 'response must contain outputs and signatures arrays',
+      });
       throw new CTSError('Invalid response from mint');
     }
 

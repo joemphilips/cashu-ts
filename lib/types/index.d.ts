@@ -428,6 +428,24 @@ export declare class AuthManager implements AuthProvider {
     };
 
     /**
+     * Bounds and transport controls for repeated NUT-09 restore requests.
+     */
+    export declare type BatchRestoreConfig = {
+        /**
+         * Maximum requests in this invocation, capped by the library absolute maximum.
+         */
+        maxBatches?: number;
+        /**
+         * Exclusive counter horizon, capped by the library absolute maximum.
+         */
+        maxCounter?: number;
+        /**
+         * Absolute abort, timeout, response-size, and body-accounting options for every request.
+         */
+        requestOptions?: RestoreConfig['requestOptions'];
+    };
+
+    /**
      * Batch verify many proofs via a single multi-pairing.
      *
      * Equation: `e(Σ rᵢ·Cᵢ, G2) == Π_{k2} e(Σ_{i:K2ᵢ=k2} rᵢ·Yᵢ, k2)`.
@@ -2279,7 +2297,7 @@ export declare class AuthManager implements AuthProvider {
           /**
            * Decorates the configured transport without replacing a native/custom adapter.
            */
-          createRequestWithOptions(options: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>): RequestFn;
+          createRequestWithOptions(options: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'>): RequestFn;
           /**
            * Metadata from the most recent HTTP response, including rate-limit headers.
            *
@@ -4291,6 +4309,49 @@ export declare class AuthManager implements AuthProvider {
                * metadata even when the request fails.
                */
               onResponseMeta?: (meta: ResponseMeta) => void;
+              /**
+               * Synchronous, fail-closed accounting hook invoked exactly once for every HTTP response
+               * attempt, including failed and over-limit reads, before JSON parsing or request settlement.
+               * Returning a Promise or throwing rejects the request and is never retried.
+               */
+              onResponseBody?: (meta: ResponseBodyMeta) => void;
+          };
+
+          export declare type ResponseBodyDisposition = 'complete' | 'limit-exceeded' | 'read-failed';
+
+          /**
+           * Fail-closed accounting metadata emitted exactly once for every HTTP response attempt.
+           */
+          export declare type ResponseBodyMeta = {
+              /**
+               * Request endpoint URL.
+               */
+              endpoint: string;
+              /**
+               * HTTP status code.
+               */
+              status: number;
+              /**
+               * Stable opaque identity shared by all retry attempts for one logical request.
+               */
+              requestId: string;
+              /**
+               * One-based HTTP attempt number within the logical request.
+               */
+              attempt: number;
+              /**
+               * Exact bytes read from fetch after HTTP content decoding, including the chunk that crossed a
+               * configured limit. Zero when a declared Content-Length is rejected before reading.
+               */
+              decodedBodyBytes: number;
+              /**
+               * Whether the complete response body was read within the configured limit.
+               */
+              complete: boolean;
+              /**
+               * Outcome of reading and bounding the response body.
+               */
+              disposition: ResponseBodyDisposition;
           };
 
           /**
@@ -4329,6 +4390,10 @@ export declare class AuthManager implements AuthProvider {
 
           export declare type RestoreConfig = {
               keysetId?: string;
+              /**
+               * Optional transport bounds for the NUT-09 restore request.
+               */
+              requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'>;
           };
 
           export declare type RpcSubKinds = 'bolt11_mint_quote' | 'bolt11_melt_quote' | 'proof_state';
@@ -5364,7 +5429,7 @@ export declare class AuthManager implements AuthProvider {
                * @param requestOptions Optional transport bounds applied to every mint-loading request.
                * @throws If fetching mint info, keysets, or keys fails.
                */
-              loadMint(forceRefresh?: boolean, requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>): Promise<void>;
+              loadMint(forceRefresh?: boolean, requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'>): Promise<void>;
               /**
                * Load mint information, keysets, and keys from cached data.
                *
@@ -5757,8 +5822,9 @@ export declare class AuthManager implements AuthProvider {
                *   is `0`
                * @param [keysetId] Which keysetId to use for the restoration. If none is passed the instance's
                *   default one will be used.
+               * @param [config] Absolute request-count, counter-horizon, abort, and transport bounds.
                */
-              batchRestore(gapLimit?: number, batchSize?: number, counter?: number, keysetId?: string): Promise<{
+              batchRestore(gapLimit?: number, batchSize?: number, counter?: number, keysetId?: string, config?: BatchRestoreConfig): Promise<{
                   proofs: Proof[];
                   lastCounterWithSignature?: number;
               }>;
@@ -5878,6 +5944,7 @@ export declare class AuthManager implements AuthProvider {
                */
               checkMintQuoteOnchain(quote: string): Promise<MintQuoteOnchainResponse>;
               private validateReturnedSignatures;
+              private bindRestoreResponse;
               private validateMintQuoteAvailableAmount;
               /* Excluded from this release type: validateMintQuote */
               /* Excluded from this release type: validateMeltQuote */
@@ -6227,7 +6294,7 @@ export declare class AuthManager implements AuthProvider {
                 *   variant: v0/v1/v2 use secp256k1; v3 (`02…`) uses BLS12-381 G1.
                 * @returns NUT-07 state for each proof, in same order.
                 */
-               checkProofsStates(proofs: Array<Pick<ProofLike, 'secret' | 'id'>>, requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal'>): Promise<ProofState[]>;
+               checkProofsStates(proofs: Array<Pick<ProofLike, 'secret' | 'id'>>, requestOptions?: Pick<RequestOptions, 'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'>): Promise<ProofState[]>;
                /**
                 * Groups proofs by their corresponding state, preserving order within each group.
                 *

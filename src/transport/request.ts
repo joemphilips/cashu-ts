@@ -117,6 +117,43 @@ export type ResponseMeta = {
   headers: Headers;
 };
 
+export type ResponseBodyDisposition = 'complete' | 'limit-exceeded' | 'read-failed';
+
+/**
+ * Fail-closed accounting metadata emitted exactly once for every HTTP response attempt.
+ */
+export type ResponseBodyMeta = {
+  /**
+   * Request endpoint URL.
+   */
+  endpoint: string;
+  /**
+   * HTTP status code.
+   */
+  status: number;
+  /**
+   * Stable opaque identity shared by all retry attempts for one logical request.
+   */
+  requestId: string;
+  /**
+   * One-based HTTP attempt number within the logical request.
+   */
+  attempt: number;
+  /**
+   * Exact bytes read from fetch after HTTP content decoding, including the chunk that crossed a
+   * configured limit. Zero when a declared Content-Length is rejected before reading.
+   */
+  decodedBodyBytes: number;
+  /**
+   * Whether the complete response body was read within the configured limit.
+   */
+  complete: boolean;
+  /**
+   * Outcome of reading and bounding the response body.
+   */
+  disposition: ResponseBodyDisposition;
+};
+
 export type RequestOptions = RequestArgs &
   Omit<RequestInit, 'body' | 'headers'> &
   Partial<Nut19Policy> & {
@@ -137,6 +174,12 @@ export type RequestOptions = RequestArgs &
      * metadata even when the request fails.
      */
     onResponseMeta?: (meta: ResponseMeta) => void;
+    /**
+     * Synchronous, fail-closed accounting hook invoked exactly once for every HTTP response
+     * attempt, including failed and over-limit reads, before JSON parsing or request settlement.
+     * Returning a Promise or throwing rejects the request and is never retried.
+     */
+    onResponseBody?: (meta: ResponseBodyMeta) => void;
   };
 
 /**
@@ -219,6 +262,35 @@ class CallerAbortError extends NetworkError {
   }
 }
 
+class ResponseAccountingError extends CTSError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'ResponseAccountingError';
+    Object.setPrototypeOf(this, ResponseAccountingError.prototype);
+  }
+}
+
+class ResponseBodyReadError extends CTSError {
+  constructor(
+    message: string,
+    readonly decodedBodyBytes: number,
+    readonly disposition: Exclude<ResponseBodyDisposition, 'complete'>,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = 'ResponseBodyReadError';
+    Object.setPrototypeOf(this, ResponseBodyReadError.prototype);
+  }
+}
+
+type RequestAttemptContext = { requestId: string; attempt: number };
+let nextRequestSequence = 0;
+
+function createRequestId(): string {
+  nextRequestSequence = (nextRequestSequence % Number.MAX_SAFE_INTEGER) + 1;
+  return `cashu-request-${nextRequestSequence}`;
+}
+
 /**
  * Returns true if the error warrants a retry on NUT-19 cached endpoints:
  *
@@ -295,16 +367,19 @@ async function requestWithRetry(options: RequestOptions): Promise<unknown> {
     ) &&
     !!ttl;
 
-  if (!isCachable) {
-    return await _request(options);
-  }
+  const requestId = createRequestId();
+  let attempt = 0;
+  const requestAttempt = (): Promise<unknown> =>
+    _request(options, { requestId, attempt: ++attempt });
+
+  if (!isCachable) return await requestAttempt();
 
   let retries = 0;
   const startTime = Date.now();
 
   const retry = async (): Promise<unknown> => {
     try {
-      return await _request(options);
+      return await requestAttempt();
     } catch (e) {
       if (isRetryableError(e)) {
         const totalElapsedTime = Date.now() - startTime;
@@ -349,7 +424,10 @@ async function requestWithRetry(options: RequestOptions): Promise<unknown> {
  * consumers MUST disable HTTP caching at the native layer or provide a `customRequest`
  * implementation (via the Mint constructor) that uses a cache-disabled HTTP client.
  */
-async function _request(options: RequestOptions): Promise<unknown> {
+async function _request(
+  options: RequestOptions,
+  attemptContext: RequestAttemptContext,
+): Promise<unknown> {
   const {
     endpoint,
     requestBody,
@@ -357,6 +435,7 @@ async function _request(options: RequestOptions): Promise<unknown> {
     requestTimeout,
     responseBodyBytesLimit,
     onResponseMeta,
+    onResponseBody,
     // consumed by requestWithRetry, excluded from raw fetch options
     cached_endpoints,
     ttl,
@@ -423,9 +502,15 @@ async function _request(options: RequestOptions): Promise<unknown> {
     return await handleResponse(response, {
       endpoint,
       onResponseMeta,
+      onResponseBody,
       responseBodyBytesLimit,
+      callerSignal,
+      timeoutController,
+      requestTimeout,
+      attemptContext,
     });
   } catch (err) {
+    if (err instanceof ResponseAccountingError) throw err;
     if (timeoutController?.signal.aborted || callerSignal?.aborted) {
       throw normalizeRequestFailure(err, timeoutController, callerSignal, requestTimeout);
     }
@@ -456,14 +541,51 @@ function normalizeRequestFailure(
 
 async function handleResponse(
   response: Response,
-  options: Pick<RequestOptions, 'endpoint' | 'onResponseMeta' | 'responseBodyBytesLimit'>,
+  options: Pick<
+    RequestOptions,
+    'endpoint' | 'onResponseMeta' | 'onResponseBody' | 'responseBodyBytesLimit'
+  > & {
+    callerSignal: AbortSignal | undefined;
+    timeoutController: AbortController | undefined;
+    requestTimeout: number | undefined;
+    attemptContext: RequestAttemptContext;
+  },
 ): Promise<unknown> {
   const retryAfterMs = parseRetryAfter(response.headers.get('Retry-After'));
   notifyResponseMeta(response, options.endpoint, retryAfterMs, options.onResponseMeta);
-  if (!response.ok) {
-    return throwHttpResponseError(response, retryAfterMs, options.responseBodyBytesLimit);
+
+  let body: DecodedResponseBody;
+  try {
+    body = await readResponseText(response, options.responseBodyBytesLimit);
+    notifyResponseBodyMeta(response, options, {
+      decodedBodyBytes: body.decodedBodyBytes,
+      complete: true,
+      disposition: 'complete',
+    });
+  } catch (err) {
+    if (err instanceof ResponseAccountingError) throw err;
+    const readError = normalizeResponseBodyReadError(err);
+    notifyResponseBodyMeta(response, options, {
+      decodedBodyBytes: readError.decodedBodyBytes,
+      complete: false,
+      disposition: readError.disposition,
+    });
+    throwIfResponseAborted(options);
+    if (!response.ok) {
+      return throwHttpResponseError(
+        response,
+        retryAfterMs,
+        undefined,
+        readError.cause ?? readError,
+      );
+    }
+    requestLogger.error('Failed to parse HTTP response', { err: readError });
+    throw new HttpResponseError('bad response', response.status, { cause: readError });
   }
-  return parseSuccessResponse(response, options.responseBodyBytesLimit);
+  throwIfResponseAborted(options);
+
+  if (!response.ok) return throwHttpResponseError(response, retryAfterMs, body.text);
+  return parseSuccessResponse(response, body.text);
 }
 
 function notifyResponseMeta(
@@ -488,19 +610,41 @@ function notifyResponseMeta(
   );
 }
 
-async function throwHttpResponseError(
+function notifyResponseBodyMeta(
+  response: Response,
+  options: Pick<RequestOptions, 'endpoint' | 'onResponseBody'> & {
+    attemptContext: RequestAttemptContext;
+  },
+  outcome: Pick<ResponseBodyMeta, 'decodedBodyBytes' | 'complete' | 'disposition'>,
+): void {
+  options.onResponseBody?.({
+    endpoint: options.endpoint,
+    status: response.status,
+    requestId: options.attemptContext.requestId,
+    attempt: options.attemptContext.attempt,
+    ...outcome,
+  });
+}
+
+function throwIfResponseAborted(options: {
+  callerSignal: AbortSignal | undefined;
+  timeoutController: AbortController | undefined;
+  requestTimeout: number | undefined;
+}): void {
+  if (options.timeoutController?.signal.aborted) {
+    throw new NetworkError(`Request timed out after ${options.requestTimeout}ms`);
+  }
+  if (options.callerSignal?.aborted) throw new CallerAbortError('Request aborted by caller');
+}
+
+function throwHttpResponseError(
   response: Response,
   retryAfterMs: number | undefined,
-  responseBodyBytesLimit: number | undefined,
-): Promise<never> {
-  let errorData: ApiError;
-  let errorDataCause: unknown;
-  try {
-    errorData = parseErrorBody(await readResponseText(response, responseBodyBytesLimit));
-  } catch (err) {
-    errorDataCause = err;
-    errorData = { error: 'bad response' };
-  }
+  bodyText: string | undefined,
+  errorDataCause?: unknown,
+): never {
+  const errorData: ApiError =
+    bodyText === undefined ? { error: 'bad response' } : parseErrorBody(bodyText);
   if (response.status === 429) throw new RateLimitError('429 Too Many Requests', retryAfterMs);
   if (
     response.status === 400 &&
@@ -518,48 +662,72 @@ async function throwHttpResponseError(
   throw new HttpResponseError(message, response.status, { cause: errorDataCause });
 }
 
-async function parseSuccessResponse(
-  response: Response,
-  responseBodyBytesLimit: number | undefined,
-): Promise<unknown> {
+function parseSuccessResponse(response: Response, bodyText: string): unknown {
   try {
-    const responseText = await readResponseText(response, responseBodyBytesLimit);
-    if (!responseText) throw new CTSError('Empty response body');
-    return JSONInt.parse(responseText);
+    if (!bodyText) throw new CTSError('Empty response body');
+    return JSONInt.parse(bodyText);
   } catch (err) {
     requestLogger.error('Failed to parse HTTP response', { err });
     throw new HttpResponseError('bad response', response.status, { cause: err });
   }
 }
 
-async function readResponseText(response: Response, maximumBytes?: number): Promise<string> {
-  if (maximumBytes === undefined) return response.text();
-  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
-    throw new CTSError('Response body byte limit is invalid');
+type DecodedResponseBody = { text: string; decodedBodyBytes: number };
+
+function normalizeResponseBodyReadError(err: unknown): ResponseBodyReadError {
+  if (err instanceof ResponseBodyReadError) return err;
+  return new ResponseBodyReadError('Failed to read response body', 0, 'read-failed', {
+    cause: err,
+  });
+}
+
+async function readResponseText(
+  response: Response,
+  maximumBytes?: number,
+): Promise<DecodedResponseBody> {
+  if (maximumBytes !== undefined && (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1)) {
+    throw new ResponseBodyReadError('Response body byte limit is invalid', 0, 'read-failed');
   }
   const contentLength = response.headers.get('Content-Length');
   if (
+    maximumBytes !== undefined &&
     contentLength !== null &&
     /^\d+$/.test(contentLength) &&
     Number(contentLength) > maximumBytes
   ) {
     void response.body?.cancel().catch(() => undefined);
-    throw new CTSError('Response body exceeds configured byte limit');
+    throw new ResponseBodyReadError(
+      'Response body exceeds configured byte limit',
+      0,
+      'limit-exceeded',
+    );
   }
   if (!response.body) {
-    const text = await response.text();
-    if (new TextEncoder().encode(text).byteLength > maximumBytes) {
-      throw new CTSError('Response body exceeds configured byte limit');
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (err) {
+      throw new ResponseBodyReadError('Failed to read response body', 0, 'read-failed', {
+        cause: err,
+      });
     }
-    return text;
+    const decodedBodyBytes = new TextEncoder().encode(text).byteLength;
+    if (maximumBytes !== undefined && decodedBodyBytes > maximumBytes) {
+      throw new ResponseBodyReadError(
+        'Response body exceeds configured byte limit',
+        decodedBodyBytes,
+        'limit-exceeded',
+      );
+    }
+    return { text, decodedBodyBytes };
   }
-  return readBoundedResponseStream(response.body, maximumBytes);
+  return readResponseStream(response.body, maximumBytes);
 }
 
-async function readBoundedResponseStream(
+async function readResponseStream(
   body: NonNullable<Response['body']>,
-  maximumBytes: number,
-): Promise<string> {
+  maximumBytes?: number,
+): Promise<DecodedResponseBody> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   const chunks: string[] = [];
@@ -569,14 +737,23 @@ async function readBoundedResponseStream(
       const { done, value } = await reader.read();
       if (done) break;
       totalBytes += value.byteLength;
-      if (totalBytes > maximumBytes) {
+      if (maximumBytes !== undefined && totalBytes > maximumBytes) {
         void reader.cancel().catch(() => undefined);
-        throw new CTSError('Response body exceeds configured byte limit');
+        throw new ResponseBodyReadError(
+          'Response body exceeds configured byte limit',
+          totalBytes,
+          'limit-exceeded',
+        );
       }
       chunks.push(decoder.decode(value, { stream: true }));
     }
     chunks.push(decoder.decode());
-    return chunks.join('');
+    return { text: chunks.join(''), decodedBodyBytes: totalBytes };
+  } catch (err) {
+    if (err instanceof ResponseBodyReadError) throw err;
+    throw new ResponseBodyReadError('Failed to read response body', totalBytes, 'read-failed', {
+      cause: err,
+    });
   } finally {
     reader.releaseLock();
   }
@@ -613,6 +790,8 @@ function parseErrorBody(errorText: string): ApiError {
 export default async function request<T>(options: RequestOptions): Promise<T> {
   const perRequest = options.onResponseMeta;
   const globalMeta = globalRequestOptions.onResponseMeta;
+  const perRequestBody = options.onResponseBody;
+  const globalBody = globalRequestOptions.onResponseBody;
   const merged: RequestOptions = { ...options, ...globalRequestOptions };
   merged.requestTimeout = minimumPositiveBound(
     options.requestTimeout,
@@ -643,8 +822,61 @@ export default async function request<T>(options: RequestOptions): Promise<T> {
     };
   }
 
+  merged.onResponseBody = composeResponseBodyAccountingHooks(perRequestBody, globalBody);
+
   const data = await requestWithRetry(merged);
   return data as T;
+}
+
+type ResponseBodyAccountingHook = (meta: ResponseBodyMeta) => void;
+const responseBodyAccountingHookMembers = new WeakMap<
+  ResponseBodyAccountingHook,
+  readonly ResponseBodyAccountingHook[]
+>();
+
+/**
+ * @internal Composes synchronous accounting hooks while preserving the first failure.
+ */
+export function composeResponseBodyAccountingHooks(
+  ...hooks: Array<ResponseBodyAccountingHook | undefined>
+): ResponseBodyAccountingHook | undefined {
+  const flattenedHooks = hooks.flatMap((hook) =>
+    hook ? (responseBodyAccountingHookMembers.get(hook) ?? [hook]) : [],
+  );
+  const uniqueHooks = [...new Set(flattenedHooks)];
+  if (uniqueHooks.length === 0) return undefined;
+  const composed = (meta: ResponseBodyMeta): void =>
+    invokeResponseBodyAccountingHooks(uniqueHooks, meta);
+  responseBodyAccountingHookMembers.set(composed, uniqueHooks);
+  return composed;
+}
+
+function invokeResponseBodyAccountingHooks(
+  hooks: readonly ResponseBodyAccountingHook[],
+  meta: ResponseBodyMeta,
+): void {
+  let firstFailure: unknown;
+  for (const hook of hooks) {
+    try {
+      const result = hook(meta);
+      if (
+        (typeof result === 'object' && result !== null && 'then' in result) ||
+        (typeof result === 'function' && 'then' in result)
+      ) {
+        void Promise.resolve(result).catch(() => undefined);
+        firstFailure ??= new CTSError('Response body accounting callback must be synchronous');
+      }
+    } catch (err) {
+      firstFailure ??= err;
+    }
+  }
+  if (firstFailure !== undefined) {
+    const message =
+      firstFailure instanceof CTSError && firstFailure.message.includes('must be synchronous')
+        ? firstFailure.message
+        : 'Response body accounting callback failed';
+    throw new ResponseAccountingError(message, { cause: firstFailure });
+  }
 }
 
 function minimumPositiveBound(

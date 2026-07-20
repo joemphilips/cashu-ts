@@ -2,12 +2,38 @@ import { type P2PKOptions } from '../../crypto';
 import { type AmountLike } from '../../model/Amount';
 import { type OutputDataFactory, type OutputDataLike } from '../../model/OutputData';
 import type { ProofLike } from '../../model/types/proof';
+import type { RequestOptions } from '../../transport';
 import { type OperationCounters } from '../CounterSource';
 
 export type SecretsPolicy = 'auto' | 'deterministic' | 'random';
 
 export type RestoreConfig = {
   keysetId?: string;
+  /**
+   * Optional transport bounds for the NUT-09 restore request.
+   */
+  requestOptions?: Pick<
+    RequestOptions,
+    'requestTimeout' | 'responseBodyBytesLimit' | 'signal' | 'onResponseBody'
+  >;
+};
+
+/**
+ * Bounds and transport controls for repeated NUT-09 restore requests.
+ */
+export type BatchRestoreConfig = {
+  /**
+   * Maximum requests in this invocation, capped by the library absolute maximum.
+   */
+  maxBatches?: number;
+  /**
+   * Exclusive counter horizon, capped by the library absolute maximum.
+   */
+  maxCounter?: number;
+  /**
+   * Absolute abort, timeout, response-size, and body-accounting options for every request.
+   */
+  requestOptions?: RestoreConfig['requestOptions'];
 };
 
 /**

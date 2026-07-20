@@ -38,11 +38,13 @@ describe('loadMint transport bounds', () => {
     const customMint = new Mint(mintUrl, { customRequest });
     const wallet = new Wallet(customMint, { unit });
     const controller = new AbortController();
+    const onResponseBody = vi.fn();
 
     await wallet.loadMint(undefined, {
       requestTimeout: 10_000,
       responseBodyBytesLimit: 256 * 1_024,
       signal: controller.signal,
+      onResponseBody,
     });
 
     expect(customRequest).toHaveBeenCalledTimes(3);
@@ -51,6 +53,7 @@ describe('loadMint transport bounds', () => {
         requestTimeout: 10_000,
         responseBodyBytesLimit: 256 * 1_024,
         signal: controller.signal,
+        onResponseBody,
       });
     }
   });
@@ -125,6 +128,113 @@ describe('checkProofsStates', () => {
         responseBodyBytesLimit: 64,
       }),
     ).rejects.toThrow('bad response');
+  });
+
+  test('checkProofsStates reports the exact NUT-07 response body bytes', async () => {
+    const responseBody = JSON.stringify({
+      states: [
+        {
+          Y: '02d5dd71f59d917da3f73defe997928e9459e9d67d8bdb771e4989c2b5f50b2fff',
+          state: 'UNSPENT',
+        },
+      ],
+    });
+    server.use(
+      http.post(mintUrl + '/v1/checkstate', () => new HttpResponse(responseBody, { status: 200 })),
+    );
+    const wallet = new Wallet(mint, { unit });
+    await wallet.loadMint();
+    const onResponseBody = vi.fn();
+
+    await wallet.checkProofsStates(proofs, { onResponseBody });
+
+    expect(onResponseBody).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decodedBodyBytes: new TextEncoder().encode(responseBody).byteLength,
+      }),
+    );
+  });
+
+  test.each([
+    {
+      name: 'a missing state',
+      mutate: () => [],
+    },
+    {
+      name: 'a duplicate state',
+      mutate: (states: Array<{ Y: string; state: string }>) => [states[0], states[0]],
+    },
+    {
+      name: 'a foreign state',
+      mutate: (states: Array<{ Y: string; state: string }>) => [
+        ...states,
+        { Y: `03${'11'.repeat(32)}`, state: 'UNSPENT' },
+      ],
+    },
+    {
+      name: 'a malformed Y',
+      mutate: () => [{ Y: 'not-a-point', state: 'UNSPENT' }],
+    },
+    {
+      name: 'an unknown state',
+      mutate: (states: Array<{ Y: string; state: string }>) => [{ ...states[0], state: 'UNKNOWN' }],
+    },
+  ])('rejects $name instead of partially classifying proofs', async ({ mutate }) => {
+    server.use(
+      http.post(mintUrl + '/v1/checkstate', async ({ request }) => {
+        const body = (await request.json()) as { Ys: string[] };
+        const validStates = body.Ys.map((Y) => ({ Y, state: 'UNSPENT' }));
+        return HttpResponse.json({ states: mutate(validStates) });
+      }),
+    );
+    const wallet = new Wallet(mint, { unit });
+    await wallet.loadMint();
+
+    await expect(wallet.checkProofsStates(proofs)).rejects.toThrow();
+  });
+
+  test('rejects duplicate proof Ys before issuing a request', async () => {
+    const check = vi.fn();
+    server.use(
+      http.post(mintUrl + '/v1/checkstate', () => {
+        check();
+        return HttpResponse.json({ states: [] });
+      }),
+    );
+    const wallet = new Wallet(mint, { unit });
+    await wallet.loadMint();
+
+    await expect(wallet.checkProofsStates([proofs[0], proofs[0]])).rejects.toThrow(
+      /duplicate proof Y/i,
+    );
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  test('maps reordered complete states back to proof order', async () => {
+    const secondProof = {
+      ...proofs[0],
+      secret: '1f98e6837a434644c9411825d7c6d6e13974b931f8f0652217cea29010674a14',
+    };
+    server.use(
+      http.post(mintUrl + '/v1/checkstate', async ({ request }) => {
+        const body = (await request.json()) as { Ys: string[] };
+        return HttpResponse.json({
+          states: [
+            { Y: body.Ys[1], state: 'SPENT' },
+            { Y: body.Ys[0], state: 'UNSPENT' },
+          ],
+        });
+      }),
+    );
+    const wallet = new Wallet(mint, { unit });
+    await wallet.loadMint();
+
+    const result = await wallet.checkProofsStates([proofs[0], secondProof]);
+
+    expect(result.map(({ state }) => state)).toEqual([
+      CheckStateEnum.UNSPENT,
+      CheckStateEnum.SPENT,
+    ]);
   });
 });
 
