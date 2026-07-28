@@ -243,6 +243,13 @@ export declare function asBlsG1Point(pt: G1Point): CurvePoint;
 export declare function asSecpPoint(pt: WeierstrassPoint<bigint>): CurvePoint;
 
 /**
+ * Require a canonical modern NUT-02 keyset ID.
+ *
+ * V1 IDs use version `00` and 8 bytes. V2/V3 IDs use versions `01`/`02` and 33 bytes.
+ */
+export declare function assertCanonicalKeysetId(keysetId: string, field?: string): string;
+
+/**
  * Assert that a Secret is of the expected kind.
  *
  * @param allowed - NUT-10 Kind(s) allowed.
@@ -503,6 +510,11 @@ export declare class AuthManager implements AuthProvider {
      */
     export declare const BLS_HASH_TO_CURVE_DST = "CASHU_BLS12_381_G1_XMD:SHA-256_SSWU_RO_";
 
+    /**
+     * Build the exact NUT-09 query set. Unknown selections query every retained manifest entry.
+     */
+    export declare function buildCtfRangeRecoveryQuery(entries: CtfRangeManifestEntryMaterial[], selection?: string): CtfRangeRecoveryQuery;
+
     /* Excluded from this release type: buildLegacyP2PKSigAllMessage */
 
     /* Excluded from this release type: buildP2PKSigAllMessage */
@@ -538,10 +550,40 @@ export declare class AuthManager implements AuthProvider {
         states: ProofState[];
     };
 
+    /**
+     * Classify an exact recovery observation without inventing a terminal state.
+     */
+    export declare function classifyCtfSettlementRecovery(input: {
+        inputStates: ProofState[];
+        expectedInputYs: string[];
+        outputRecovery: {
+            query: CtfRangeRecoveryQuery;
+            restoredOutputBs: string[];
+            queryCompleted: boolean;
+        };
+        now: number;
+        expiry: number;
+    }): CtfSettlementRecoveryClassification;
+
     export declare type CompleteMeltOptions = {
         preferAsync?: boolean;
         extraPayload?: Record<string, unknown>;
     };
+
+    /**
+     * Validate and compute a CTF pool-manifest commitment.
+     */
+    export declare function computeCtfManifestCommitment(manifest: CtfPoolEntry[]): string;
+
+    /**
+     * Compute the CTF endpoint-specific commitment for an exact ordered output bundle.
+     */
+    export declare function computeCtfReceiveCommitment(outputs: SerializedBlindedMessage[]): string;
+
+    /**
+     * Compute the byte-exact CTF multi-party idempotency digest.
+     */
+    export declare function computeCtfSettlementRequestDigest(request: CtfSettlementRequest): string;
 
     /**
      * Computes the SHA-256 hash of a UTF-8 message string.
@@ -555,6 +597,11 @@ export declare class AuthManager implements AuthProvider {
     export declare function computeMessageDigest(message: string, asHex: false): Uint8Array;
 
     export declare function computeMessageDigest(message: string, asHex: true): string;
+
+    /**
+     * Compute the witness-free digest for a post-expiry NUT-03 refund.
+     */
+    export declare function computePayToUnlockRefundDigest(request: SwapRequest): string;
 
     export declare interface ConditionalKeysetInfo {
         id: string;
@@ -712,6 +759,72 @@ export declare class AuthManager implements AuthProvider {
      export declare function createBlindSignatureBls(B_: G1Point, privateKey: Uint8Array, id: string): BlindSignature;
 
      /**
+      * Build deterministic NUT-03 outputs that mint the exact `PAY_TO_UNLOCK` input proofs.
+      */
+     export declare function createCtfAuthorizationOutputs(input: CreateCtfAuthorizationOutputsInput): OutputData[];
+
+     export declare interface CreateCtfAuthorizationOutputsInput {
+         seed: Uint8Array;
+         operationId: string;
+         offerKeysetId: string;
+         amounts: AmountLike[];
+         commitment: string;
+         expiry: string | bigint | number;
+         expiryContext: {
+             now: string | bigint | number;
+             maxExpirySeconds: string | bigint | number;
+             condition: Pick<CtfConditionInfo, 'condition_id' | 'keysets' | 'partitions'>;
+             conditionalKeysets: Array<Pick<ConditionalKeysetInfo, 'id' | 'condition_id' | 'final_expiry'>>;
+         };
+         refund: string;
+         poolPolicy?: {
+             rateN: string | bigint | number;
+             rateD: string | bigint | number;
+             minReceive: string | bigint | number;
+             maxDebit: string | bigint | number;
+         };
+     }
+
+     /**
+      * Create one strict standard or pool-mode `PAY_TO_UNLOCK` proof secret.
+      */
+     export declare function createCtfPayToUnlockSecret(input: CreateCtfPayToUnlockSecretInput): string;
+
+     export declare interface CreateCtfPayToUnlockSecretInput {
+         nonce: string;
+         data: string;
+         offerKeyset: string;
+         expiry: string | bigint | number;
+         refund: string;
+         poolPolicy?: {
+             rateN: string | bigint | number;
+             rateD: string | bigint | number;
+             minReceive: string | bigint | number;
+             maxDebit: string | bigint | number;
+         };
+     }
+
+     /**
+      * Create a deterministic powers-of-two range manifest and retain every entry's unblinding data.
+      */
+     export declare function createCtfRangeManifest(input: CreateCtfRangeManifestInput): CtfRangeManifestMaterial;
+
+     export declare interface CreateCtfRangeManifestInput {
+         seed: Uint8Array;
+         operationId: string;
+         receiveKeyset: CtfRangeKeyset;
+         offerKeyset: CtfRangeKeyset;
+         maxReceive: AmountLike;
+         maxChange: AmountLike;
+         maxEntries: number;
+     }
+
+     /**
+      * Encode selected manifest indices as the pinned LSB-first lowercase bitmap.
+      */
+     export declare function createCtfSelectionBitmap(entryCount: number, selectedIndices: number[]): string;
+
+     /**
       * !!! WARNING !!! Not recommended for production use, due to non-constant time operations See:
       * https://github.com/cashubtc/cashu-crypto-ts/pull/2 for more details See:
       * https://en.wikipedia.org/wiki/Timing_attack for information about timing attacks.
@@ -842,6 +955,105 @@ export declare class AuthManager implements AuthProvider {
          signatures: Record<string, SerializedBlindedSignature[]>;
      }
 
+     export declare interface CtfPayToUnlockCondition {
+         nonce: string;
+         data: string;
+         offerKeyset: string;
+         expiry: bigint;
+         refund: string;
+         mode: CtfPayToUnlockMode;
+     }
+
+     export declare type CtfPayToUnlockMode = {
+         kind: 'standard';
+     } | {
+         kind: 'pool';
+         policy: CtfPoolPolicy;
+     };
+
+     /**
+      * One owner-created output candidate in a pool-mode CTF settlement.
+      *
+      * Amount and index are strings on this protocol surface because the pinned draft requires minimal
+      * decimal encoding.
+      */
+     export declare interface CtfPoolEntry {
+         index: string;
+         role: CtfPoolEntryRole;
+         amount: string;
+         id: string;
+         B_: string;
+     }
+
+     export declare type CtfPoolEntryRole = 'receive' | 'change';
+
+     export declare interface CtfPoolPolicy {
+         rateN: bigint;
+         rateD: bigint;
+         minReceive: bigint;
+         maxDebit: bigint;
+     }
+
+     export declare interface CtfRangeKeyset extends HasKeysetKeys {
+         active: boolean;
+     }
+
+     export declare interface CtfRangeManifestEntryMaterial {
+         entry: CtfPoolEntry;
+         outputData: OutputData;
+     }
+
+     export declare interface CtfRangeManifestMaterial {
+         entries: CtfRangeManifestEntryMaterial[];
+         serialized: CtfPoolEntry[];
+         commitment: string;
+     }
+
+     export declare type CtfRangeRecoveryQuery = {
+         mode: 'known';
+         outputs: SerializedBlindedMessage[];
+         expectedOutputBs: string[];
+     } | {
+         mode: 'unknown';
+         outputs: SerializedBlindedMessage[];
+         manifestBs: string[];
+     };
+
+     export declare interface CtfRangeRefundKey {
+         privateKey: string;
+         publicKey: string;
+     }
+
+     export declare interface CtfRangeSelection {
+         selection: string;
+         selectedIndices: number[];
+         outputs: SerializedBlindedMessage[];
+         receiveTotal: Amount;
+         changeTotal: Amount;
+     }
+
+     export declare interface CtfSettlementParticipant {
+         inputs: Proof[];
+         outputs: SerializedBlindedMessage[];
+         pool_manifest?: CtfPoolEntry[];
+         pool_selection?: string;
+     }
+
+     export declare type CtfSettlementRecoveryClassification = 'confirmed' | 'waiting' | 'refundable' | 'reconciling';
+
+     /**
+      * Strict multi-party request for `POST /v1/ctf/convert`.
+      */
+     export declare interface CtfSettlementRequest {
+         condition_id: string;
+         parent_collection_id?: string;
+         participants: CtfSettlementParticipant[];
+     }
+
+     export declare interface CtfSettlementResponse {
+         signatures: SerializedBlindedSignature[][];
+     }
+
      /**
       * Base error for errors raised by cashu-ts itself.
       */
@@ -897,6 +1109,16 @@ export declare class AuthManager implements AuthProvider {
          conditionId: string;
          outcomeCollectionId: string;
      }
+
+     /**
+      * Derive the exact selected bitmap after a complete all-manifest NUT-09 restore.
+      */
+     export declare function deriveCtfRangeRecoverySelection(entries: CtfRangeManifestEntryMaterial[], restoredOutputs: SerializedBlindedMessage[]): string;
+
+     /**
+      * Deterministically derive a fresh operation-scoped refund keypair.
+      */
+     export declare function deriveCtfRangeRefundKey(seed: Uint8Array, operationId: string): CtfRangeRefundKey;
 
      declare type DerivedSecretAndBlindingFactor = {
          blindingFactor: Uint8Array;
@@ -2709,6 +2931,10 @@ export declare class AuthManager implements AuthProvider {
            */
           ctfConvert(convertPayload: CtfConvertRequest, customRequest?: RequestFn): Promise<CtfConvertResponse>;
           /**
+           * Atomically settles a multi-party standard/range CTF conversion.
+           */
+          ctfSettle(payload: CtfSettlementRequest, customRequest?: RequestFn): Promise<CtfSettlementResponse>;
+          /**
            * Redeems witnessed conditional outcome proofs into regular mint proofs.
            *
            * Callers must attach the oracle witness to each conditional input proof before invoking this
@@ -3562,6 +3788,14 @@ export declare class AuthManager implements AuthProvider {
           static createP2PKData(p2pk: P2PKOptions, amount: AmountLike, keyset: HasKeysetKeys, customSplit?: AmountLike[]): OutputData[];
           static createSingleP2PKData(p2pk: P2PKOptions, amount: AmountLike, keysetId: string): OutputData;
           static createRandomData(amount: AmountLike, keyset: HasKeysetKeys, customSplit?: AmountLike[]): OutputData[];
+          /**
+           * Blind one caller-supplied proof secret.
+           *
+           * This is the low-level construction path for well-known NUT-10 secrets whose exact bytes are
+           * part of a higher-level protocol. When `blindingFactor` is supplied, callers must derive and
+           * persist it together with the exact secret before exposing an external effect.
+           */
+          static createSingleData(amount: AmountLike, keysetId: string, secret: string | Uint8Array, blindingFactor?: bigint): OutputData;
           static createSingleRandomData(amount: AmountLike, keysetId: string): OutputData;
           static createDeterministicData(amount: AmountLike, seed: Uint8Array, counter: number, keyset: HasKeysetKeys, customSplit?: AmountLike[]): OutputData[];
           /**
@@ -3815,6 +4049,16 @@ export declare class AuthManager implements AuthProvider {
                */
               signatures?: string[];
           };
+
+          /**
+           * Strictly parse the closed CTF `PAY_TO_UNLOCK` dialect.
+           */
+          export declare function parseCtfPayToUnlockCondition(secret: string): CtfPayToUnlockCondition;
+
+          /**
+           * Strictly decode an LSB-first pool-selection bitmap.
+           */
+          export declare function parseCtfSelectionBitmap(value: string, entryCount: number): number[];
 
           /**
            * Parse an HTLC Secret and validate NUT-10 shape.
@@ -4171,6 +4415,11 @@ export declare class AuthManager implements AuthProvider {
               onCountersReserved?: OnCountersReserved;
           };
 
+          /**
+           * Unblind every signature returned by one exact NUT-09 query.
+           */
+          export declare function recoverCtfRangeProofs(entries: CtfRangeManifestEntryMaterial[], restoredOutputs: SerializedBlindedMessage[], signatures: SerializedBlindedSignature[], resolveKeyset: (id: string) => HasKeysetKeys | undefined): Proof[];
+
           export declare interface RedeemOutcomeProofsOptions {
               /**
                * Conditional proofs carrying the oracle witness required by the mint.
@@ -4328,6 +4577,16 @@ export declare class AuthManager implements AuthProvider {
           export declare type SecretKind = 'P2PK' | 'HTLC' | (string & {});
 
           export declare type SecretsPolicy = 'auto' | 'deterministic' | 'random';
+
+          /**
+           * Return exactly the blinded messages selected from a validated manifest.
+           */
+          export declare function selectCtfManifestOutputs(manifest: CtfPoolEntry[], selection: string): SerializedBlindedMessage[];
+
+          /**
+           * Select exact receive/change totals from a binary-denomination manifest built by this SDK.
+           */
+          export declare function selectCtfRangeAmounts(manifest: CtfPoolEntry[], receiveAmount: Amount | string | bigint | number, changeAmount: Amount | string | bigint | number): CtfRangeSelection;
 
           export declare type SelectProofs = (proofs: ProofLike[], amountToSelect: AmountLike, keyChain: KeyChain, includeFees?: boolean, exactMatch?: boolean, logger?: Logger) => SendResponse;
 
@@ -4837,6 +5096,11 @@ export declare class AuthManager implements AuthProvider {
           export declare function signP2PKProofs(proofs: Proof[], privateKey: PrivKey | PrivKey[], logger?: Logger, message?: string): Proof[];
 
           /**
+           * Attach exactly one refund signature to every `PAY_TO_UNLOCK` input.
+           */
+          export declare function signPayToUnlockRefund(request: SwapRequest, privateKey: string): SwapRequest;
+
+          /**
            * Returns a copy of `proofs` sorted by keyset id (lexicographic).
            */
           export declare function sortProofsById(proofs: Proof[]): Proof[];
@@ -5056,6 +5320,11 @@ export declare class AuthManager implements AuthProvider {
            * mint pubkey is not needed here.
            */
           export declare function unblindSignatureBls(C_: G1Point, r: bigint): G1Point;
+
+          /**
+           * Validate the pool rate covenant and owner bounds using checked bigint arithmetic.
+           */
+          export declare function validateCtfPoolPolicyTotals(policy: CtfPoolPolicy, inputTotal: bigint, receiveTotal: bigint, changeTotal: bigint): void;
 
           export declare const verifyDLEQProof: (dleq: DLEQ, B_: WeierstrassPoint<bigint>, C_: WeierstrassPoint<bigint>, A: WeierstrassPoint<bigint>) => boolean;
 
