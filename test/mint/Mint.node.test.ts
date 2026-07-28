@@ -1143,6 +1143,88 @@ describe('Mint normalization', () => {
     expect(response.signatures.NO[0].amount).toEqual(Amount.from(100));
   });
 
+  it('ctfSettle posts participant arrays and normalizes each exact response group', async () => {
+    const settlement = {
+      condition_id: 'e'.repeat(64),
+      participants: [
+        {
+          inputs: [],
+          outputs: [{ id: '00bd033559de27d0', amount: Amount.from(2), B_: '02'.padEnd(66, 'a') }],
+        },
+        {
+          inputs: [],
+          outputs: [{ id: '00bd033559de27d1', amount: Amount.from(3), B_: '02'.padEnd(66, 'b') }],
+        },
+      ],
+    };
+    const requestSpy = vi.fn(async (options: ReqArgs) => {
+      expect(options.endpoint).toBe(`${mintUrl}/v1/ctf/convert`);
+      expect(options.method).toBe('POST');
+      expect(options.requestBody).toBe(settlement);
+      return {
+        signatures: [
+          [{ id: '00bd033559de27d0', amount: 2, C_: '02'.padEnd(66, 'c') }],
+          [{ id: '00bd033559de27d1', amount: 3, C_: '02'.padEnd(66, 'd') }],
+        ],
+      };
+    }) as RequestFn;
+    const mint = new Mint(mintUrl, { customRequest: requestSpy });
+
+    const response = await mint.ctfSettle(settlement);
+
+    expect(response.signatures[0][0].amount).toEqual(Amount.from(2));
+    expect(response.signatures[1][0].amount).toEqual(Amount.from(3));
+  });
+
+  it('ctfSettle rejects an incomplete exact response', async () => {
+    const mint = new Mint(mintUrl, {
+      customRequest: makeRequest({ signatures: [[], []] }),
+    });
+    await expect(
+      mint.ctfSettle({
+        condition_id: 'e'.repeat(64),
+        participants: [
+          {
+            inputs: [],
+            outputs: [
+              {
+                id: '00bd033559de27d0',
+                amount: Amount.one(),
+                B_: '02'.padEnd(66, 'a'),
+              },
+            ],
+          },
+          { inputs: [], outputs: [] },
+        ],
+      }),
+    ).rejects.toThrow(/signature count/);
+  });
+
+  it('ctfSettle rejects signatures for a different requested output', async () => {
+    const mint = new Mint(mintUrl, {
+      customRequest: makeRequest({
+        signatures: [[{ id: '00bd033559de27d1', amount: 1, C_: '02'.padEnd(66, 'c') }]],
+      }),
+    });
+    await expect(
+      mint.ctfSettle({
+        condition_id: 'e'.repeat(64),
+        participants: [
+          {
+            inputs: [],
+            outputs: [
+              {
+                id: '00bd033559de27d0',
+                amount: Amount.one(),
+                B_: '02'.padEnd(66, 'a'),
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toThrow(/mismatched/);
+  });
+
   it('throws on invalid minted signatures responses', async () => {
     const logger = createLogger();
     const mint = new Mint(mintUrl, {

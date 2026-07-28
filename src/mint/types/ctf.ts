@@ -92,6 +92,42 @@ export interface CtfConvertResponse {
   signatures: Record<string, SerializedBlindedSignature[]>;
 }
 
+export type CtfPoolEntryRole = 'receive' | 'change';
+
+/**
+ * One owner-created output candidate in a pool-mode CTF settlement.
+ *
+ * Amount and index are strings on this protocol surface because the pinned draft requires minimal
+ * decimal encoding.
+ */
+export interface CtfPoolEntry {
+  index: string;
+  role: CtfPoolEntryRole;
+  amount: string;
+  id: string;
+  B_: string;
+}
+
+export interface CtfSettlementParticipant {
+  inputs: Proof[];
+  outputs: SerializedBlindedMessage[];
+  pool_manifest?: CtfPoolEntry[];
+  pool_selection?: string;
+}
+
+/**
+ * Strict multi-party request for `POST /v1/ctf/convert`.
+ */
+export interface CtfSettlementRequest {
+  condition_id: string;
+  parent_collection_id?: string;
+  participants: CtfSettlementParticipant[];
+}
+
+export interface CtfSettlementResponse {
+  signatures: SerializedBlindedSignature[][];
+}
+
 export interface RedeemOutcomeRequest {
   inputs: Proof[];
   outputs: SerializedBlindedMessage[];

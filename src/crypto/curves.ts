@@ -53,6 +53,18 @@ export function isBlsKeyset(keysetId: string): boolean {
   return keysetId.startsWith('02');
 }
 
+/**
+ * Require a canonical modern NUT-02 keyset ID.
+ *
+ * V1 IDs use version `00` and 8 bytes. V2/V3 IDs use versions `01`/`02` and 33 bytes.
+ */
+export function assertCanonicalKeysetId(keysetId: string, field = 'keyset id'): string {
+  if (!/^(00[0-9a-f]{14}|0[12][0-9a-f]{64})$/.test(keysetId)) {
+    throw new CTSError(`${field} must be a canonical NUT-02 keyset id`);
+  }
+  return keysetId;
+}
+
 export const getKeysetIdInt = (keysetId: string): bigint => {
   let keysetIdInt: bigint;
   if (/^[a-fA-F0-9]+$/.test(keysetId)) {

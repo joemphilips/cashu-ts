@@ -63,6 +63,8 @@ import type {
   CtfConditionInfo,
   CtfConvertRequest,
   CtfConvertResponse,
+  CtfSettlementRequest,
+  CtfSettlementResponse,
   RedeemOutcomeRequest,
   RedeemOutcomeResponse,
   ConditionalKeysetsResponse,
@@ -1156,6 +1158,49 @@ class Mint {
       }
       data.signatures[collection] = this.normalizeSignatureAmounts(signatures);
     }
+    return data;
+  }
+
+  /**
+   * Atomically settles a multi-party standard/range CTF conversion.
+   */
+  async ctfSettle(
+    payload: CtfSettlementRequest,
+    customRequest?: RequestFn,
+  ): Promise<CtfSettlementResponse> {
+    const data = await this.requestWithAuth<CtfSettlementResponse>(
+      'POST',
+      '/v1/ctf/convert',
+      { requestBody: payload as unknown as Record<string, unknown> },
+      customRequest,
+    );
+    if (!isObj(data) || !Array.isArray(data.signatures)) {
+      this._logger.error('Invalid response from mint...', { data, op: 'ctfSettle' });
+      throw new CTSError('Invalid response from mint');
+    }
+    if (data.signatures.length !== payload.participants.length) {
+      throw new CTSError('Mint returned the wrong CTF settlement participant count');
+    }
+    data.signatures = data.signatures.map((signatures, index) => {
+      if (
+        !Array.isArray(signatures) ||
+        signatures.length !== payload.participants[index].outputs.length
+      ) {
+        throw new CTSError(
+          `Mint returned the wrong CTF settlement signature count for participant ${index}`,
+        );
+      }
+      const normalized = this.normalizeSignatureAmounts(signatures);
+      normalized.forEach((signature, signatureIndex) => {
+        const output = payload.participants[index].outputs[signatureIndex];
+        if (signature.id !== output.id || !signature.amount.equals(output.amount)) {
+          throw new CTSError(
+            `Mint returned a mismatched CTF settlement signature for participant ${index}`,
+          );
+        }
+      });
+      return normalized;
+    });
     return data;
   }
 

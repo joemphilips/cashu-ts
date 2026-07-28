@@ -142,6 +142,9 @@ export function asBlsG1Point(pt: G1Point): CurvePoint;
 export function asSecpPoint(pt: WeierstrassPoint<bigint>): CurvePoint;
 
 // @public
+export function assertCanonicalKeysetId(keysetId: string, field?: string): string;
+
+// @public
 export function assertSecretKind(allowed: SecretKind | SecretKind[], secret: Secret | string): Secret;
 
 // @public
@@ -240,6 +243,9 @@ export const BLS_G2_GENERATOR: WeierstrassPoint<Fp2>;
 // @public
 export const BLS_HASH_TO_CURVE_DST = "CASHU_BLS12_381_G1_XMD:SHA-256_SSWU_RO_";
 
+// @public
+export function buildCtfRangeRecoveryQuery(entries: CtfRangeManifestEntryMaterial[], selection?: string): CtfRangeRecoveryQuery;
+
 // @public (undocumented)
 export type CancellerLike = SubscriptionCanceller | Promise<SubscriptionCanceller>;
 
@@ -263,11 +269,33 @@ export type CheckStateResponse = {
     states: ProofState[];
 };
 
+// @public
+export function classifyCtfSettlementRecovery(input: {
+    inputStates: ProofState[];
+    expectedInputYs: string[];
+    outputRecovery: {
+        query: CtfRangeRecoveryQuery;
+        restoredOutputBs: string[];
+        queryCompleted: boolean;
+    };
+    now: number;
+    expiry: number;
+}): CtfSettlementRecoveryClassification;
+
 // @public (undocumented)
 export type CompleteMeltOptions = {
     preferAsync?: boolean;
     extraPayload?: Record<string, unknown>;
 };
+
+// @public
+export function computeCtfManifestCommitment(manifest: CtfPoolEntry[]): string;
+
+// @public
+export function computeCtfReceiveCommitment(outputs: SerializedBlindedMessage[]): string;
+
+// @public
+export function computeCtfSettlementRequestDigest(request: CtfSettlementRequest): string;
 
 // @public
 export function computeMessageDigest(message: string): Uint8Array;
@@ -277,6 +305,9 @@ export function computeMessageDigest(message: string, asHex: false): Uint8Array;
 
 // @public (undocumented)
 export function computeMessageDigest(message: string, asHex: true): string;
+
+// @public
+export function computePayToUnlockRefundDigest(request: SwapRequest): string;
 
 // @public (undocumented)
 export interface ConditionalKeysetInfo {
@@ -405,6 +436,89 @@ export function createBlindSignature(B_: WeierstrassPoint<bigint>, privateKey: U
 export function createBlindSignatureBls(B_: G1Point, privateKey: Uint8Array, id: string): BlindSignature;
 
 // @public
+export function createCtfAuthorizationOutputs(input: CreateCtfAuthorizationOutputsInput): OutputData[];
+
+// @public (undocumented)
+export interface CreateCtfAuthorizationOutputsInput {
+    // (undocumented)
+    amounts: AmountLike[];
+    // (undocumented)
+    commitment: string;
+    // (undocumented)
+    expiry: string | bigint | number;
+    // (undocumented)
+    expiryContext: {
+        now: string | bigint | number;
+        maxExpirySeconds: string | bigint | number;
+        condition: Pick<CtfConditionInfo, 'condition_id' | 'keysets' | 'partitions'>;
+        conditionalKeysets: Array<Pick<ConditionalKeysetInfo, 'id' | 'condition_id' | 'final_expiry'>>;
+    };
+    // (undocumented)
+    offerKeysetId: string;
+    // (undocumented)
+    operationId: string;
+    // (undocumented)
+    poolPolicy?: {
+        rateN: string | bigint | number;
+        rateD: string | bigint | number;
+        minReceive: string | bigint | number;
+        maxDebit: string | bigint | number;
+    };
+    // (undocumented)
+    refund: string;
+    // (undocumented)
+    seed: Uint8Array;
+}
+
+// @public
+export function createCtfPayToUnlockSecret(input: CreateCtfPayToUnlockSecretInput): string;
+
+// @public (undocumented)
+export interface CreateCtfPayToUnlockSecretInput {
+    // (undocumented)
+    data: string;
+    // (undocumented)
+    expiry: string | bigint | number;
+    // (undocumented)
+    nonce: string;
+    // (undocumented)
+    offerKeyset: string;
+    // (undocumented)
+    poolPolicy?: {
+        rateN: string | bigint | number;
+        rateD: string | bigint | number;
+        minReceive: string | bigint | number;
+        maxDebit: string | bigint | number;
+    };
+    // (undocumented)
+    refund: string;
+}
+
+// @public
+export function createCtfRangeManifest(input: CreateCtfRangeManifestInput): CtfRangeManifestMaterial;
+
+// @public (undocumented)
+export interface CreateCtfRangeManifestInput {
+    // (undocumented)
+    maxChange: AmountLike;
+    // (undocumented)
+    maxEntries: number;
+    // (undocumented)
+    maxReceive: AmountLike;
+    // (undocumented)
+    offerKeyset: CtfRangeKeyset;
+    // (undocumented)
+    operationId: string;
+    // (undocumented)
+    receiveKeyset: CtfRangeKeyset;
+    // (undocumented)
+    seed: Uint8Array;
+}
+
+// @public
+export function createCtfSelectionBitmap(entryCount: number, selectedIndices: number[]): string;
+
+// @public
 export const createDLEQProof: (B_: WeierstrassPoint<bigint>, a: Uint8Array) => DLEQ;
 
 // @public
@@ -460,6 +574,14 @@ export interface CtfConditionInfo {
     // (undocumented)
     lo_bound?: number;
     // (undocumented)
+    partitions?: Array<{
+        partition?: string[];
+        collateral?: string;
+        parent_collection_id?: string;
+        keysets?: Record<string, string>;
+        registered_at?: number;
+    }>;
+    // (undocumented)
     precision?: number;
     // (undocumented)
     registered_at?: number;
@@ -485,6 +607,147 @@ export interface CtfConvertRequest {
 export interface CtfConvertResponse {
     // (undocumented)
     signatures: Record<string, SerializedBlindedSignature[]>;
+}
+
+// @public (undocumented)
+export interface CtfPayToUnlockCondition {
+    // (undocumented)
+    data: string;
+    // (undocumented)
+    expiry: bigint;
+    // (undocumented)
+    mode: CtfPayToUnlockMode;
+    // (undocumented)
+    nonce: string;
+    // (undocumented)
+    offerKeyset: string;
+    // (undocumented)
+    refund: string;
+}
+
+// @public (undocumented)
+export type CtfPayToUnlockMode = {
+    kind: 'standard';
+} | {
+    kind: 'pool';
+    policy: CtfPoolPolicy;
+};
+
+// @public
+export interface CtfPoolEntry {
+    // (undocumented)
+    amount: string;
+    // (undocumented)
+    B_: string;
+    // (undocumented)
+    id: string;
+    // (undocumented)
+    index: string;
+    // (undocumented)
+    role: CtfPoolEntryRole;
+}
+
+// @public (undocumented)
+export type CtfPoolEntryRole = 'receive' | 'change';
+
+// @public (undocumented)
+export interface CtfPoolPolicy {
+    // (undocumented)
+    maxDebit: bigint;
+    // (undocumented)
+    minReceive: bigint;
+    // (undocumented)
+    rateD: bigint;
+    // (undocumented)
+    rateN: bigint;
+}
+
+// @public (undocumented)
+export interface CtfRangeKeyset extends HasKeysetKeys {
+    // (undocumented)
+    active: boolean;
+}
+
+// @public (undocumented)
+export interface CtfRangeManifestEntryMaterial {
+    // (undocumented)
+    entry: CtfPoolEntry;
+    // (undocumented)
+    outputData: OutputData;
+}
+
+// @public (undocumented)
+export interface CtfRangeManifestMaterial {
+    // (undocumented)
+    commitment: string;
+    // (undocumented)
+    entries: CtfRangeManifestEntryMaterial[];
+    // (undocumented)
+    serialized: CtfPoolEntry[];
+}
+
+// @public (undocumented)
+export type CtfRangeRecoveryQuery = {
+    mode: 'known';
+    outputs: SerializedBlindedMessage[];
+    expectedOutputBs: string[];
+} | {
+    mode: 'unknown';
+    outputs: SerializedBlindedMessage[];
+    manifestBs: string[];
+};
+
+// @public (undocumented)
+export interface CtfRangeRefundKey {
+    // (undocumented)
+    privateKey: string;
+    // (undocumented)
+    publicKey: string;
+}
+
+// @public (undocumented)
+export interface CtfRangeSelection {
+    // (undocumented)
+    changeTotal: Amount;
+    // (undocumented)
+    outputs: SerializedBlindedMessage[];
+    // (undocumented)
+    receiveTotal: Amount;
+    // (undocumented)
+    selectedIndices: number[];
+    // (undocumented)
+    selection: string;
+}
+
+// @public (undocumented)
+export interface CtfSettlementParticipant {
+    // (undocumented)
+    inputs: Proof[];
+    // (undocumented)
+    outputs: SerializedBlindedMessage[];
+    // (undocumented)
+    pool_manifest?: CtfPoolEntry[];
+    // (undocumented)
+    pool_selection?: string;
+}
+
+// @public (undocumented)
+export type CtfSettlementRecoveryClassification = 'confirmed' | 'waiting' | 'refundable' | 'reconciling';
+
+// @public
+export interface CtfSettlementRequest {
+    // (undocumented)
+    condition_id: string;
+    // (undocumented)
+    parent_collection_id?: string;
+    // (undocumented)
+    participants: CtfSettlementParticipant[];
+}
+
+// @public (undocumented)
+export interface CtfSettlementResponse {
+    // (undocumented)
+    signatures: SerializedBlindedSignature[][];
 }
 
 // @public
@@ -529,6 +792,12 @@ export interface DeriveConditionalKeysetIdInput {
     // (undocumented)
     unit: string;
 }
+
+// @public
+export function deriveCtfRangeRecoverySelection(entries: CtfRangeManifestEntryMaterial[], restoredOutputs: SerializedBlindedMessage[]): string;
+
+// @public
+export function deriveCtfRangeRefundKey(seed: Uint8Array, operationId: string): CtfRangeRefundKey;
 
 // @public
 export function deriveKeysetId(keys: Keys, options?: DeriveKeysetIdOptions): string;
@@ -1148,6 +1417,7 @@ class Mint {
     createMintQuoteBolt12(mintQuotePayload: MintQuoteBolt12Request, customRequest?: RequestFn): Promise<MintQuoteBolt12Response>;
     createMintQuoteOnchain(mintQuotePayload: MintQuoteOnchainRequest, customRequest?: RequestFn): Promise<MintQuoteOnchainResponse>;
     ctfConvert(convertPayload: CtfConvertRequest, customRequest?: RequestFn): Promise<CtfConvertResponse>;
+    ctfSettle(payload: CtfSettlementRequest, customRequest?: RequestFn): Promise<CtfSettlementResponse>;
     disconnectWebSocket(): void;
     getConditionalKeysets(query?: GetConditionalKeysetsQuery, customRequest?: RequestFn): Promise<ConditionalKeysetsResponse>;
     // (undocumented)
@@ -1608,6 +1878,7 @@ export class OutputData implements OutputDataLike {
     static createP2PKData(p2pk: P2PKOptions, amount: AmountLike, keyset: HasKeysetKeys, customSplit?: AmountLike[]): OutputData[];
     // (undocumented)
     static createRandomData(amount: AmountLike, keyset: HasKeysetKeys, customSplit?: AmountLike[]): OutputData[];
+    static createSingleData(amount: AmountLike, keysetId: string, secret: string | Uint8Array, blindingFactor?: bigint): OutputData;
     // (undocumented)
     static createSingleDeterministicData(amount: AmountLike, seed: Uint8Array, counter: number, keysetId: string): OutputData;
     // (undocumented)
@@ -1745,6 +2016,12 @@ export interface P2PKVerificationResult {
 export type P2PKWitness = {
     signatures?: string[];
 };
+
+// @public
+export function parseCtfPayToUnlockCondition(secret: string): CtfPayToUnlockCondition;
+
+// @public
+export function parseCtfSelectionBitmap(value: string, entryCount: number): number[];
 
 // @public
 export function parseHTLCSecret(secret: string | Secret): Secret;
@@ -1943,6 +2220,9 @@ export type ReceiveConfig = {
     onCountersReserved?: OnCountersReserved;
 };
 
+// @public
+export function recoverCtfRangeProofs(entries: CtfRangeManifestEntryMaterial[], restoredOutputs: SerializedBlindedMessage[], signatures: SerializedBlindedSignature[], resolveKeyset: (id: string) => HasKeysetKeys | undefined): Proof[];
+
 // @public (undocumented)
 export interface RedeemOutcomeProofsOptions {
     inputs: ProofLike[];
@@ -2061,6 +2341,12 @@ export type SecretKind = 'P2PK' | 'HTLC' | (string & {});
 
 // @public (undocumented)
 export type SecretsPolicy = 'auto' | 'deterministic' | 'random';
+
+// @public
+export function selectCtfManifestOutputs(manifest: CtfPoolEntry[], selection: string): SerializedBlindedMessage[];
+
+// @public
+export function selectCtfRangeAmounts(manifest: CtfPoolEntry[], receiveAmount: Amount | string | bigint | number, changeAmount: Amount | string | bigint | number): CtfRangeSelection;
 
 // @public (undocumented)
 export type SelectProofs = (proofs: ProofLike[], amountToSelect: AmountLike, keyChain: KeyChain, includeFees?: boolean, exactMatch?: boolean, logger?: Logger) => SendResponse;
@@ -2230,6 +2516,9 @@ export function signP2PKProof(proof: Proof, privateKey: PrivKey, message?: strin
 export function signP2PKProofs(proofs: Proof[], privateKey: PrivKey | PrivKey[], logger?: Logger, message?: string): Proof[];
 
 // @public
+export function signPayToUnlockRefund(request: SwapRequest, privateKey: string): SwapRequest;
+
+// @public
 export function sortProofsById(proofs: Proof[]): Proof[];
 
 // @public
@@ -2334,6 +2623,9 @@ export function unblindSignature(C_: WeierstrassPoint<bigint>, r: bigint, A: Wei
 
 // @public
 export function unblindSignatureBls(C_: G1Point, r: bigint): G1Point;
+
+// @public
+export function validateCtfPoolPolicyTotals(policy: CtfPoolPolicy, inputTotal: bigint, receiveTotal: bigint, changeTotal: bigint): void;
 
 // @public (undocumented)
 export const verifyDLEQProof: (dleq: DLEQ, B_: WeierstrassPoint<bigint>, C_: WeierstrassPoint<bigint>, A: WeierstrassPoint<bigint>) => boolean;

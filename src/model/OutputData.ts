@@ -372,6 +372,29 @@ export class OutputData implements OutputDataLike {
     return amounts.map((a) => this.createSingleRandomData(a, keyset.id));
   }
 
+  /**
+   * Blind one caller-supplied proof secret.
+   *
+   * This is the low-level construction path for well-known NUT-10 secrets whose exact bytes are
+   * part of a higher-level protocol. When `blindingFactor` is supplied, callers must derive and
+   * persist it together with the exact secret before exposing an external effect.
+   */
+  static createSingleData(
+    amount: AmountLike,
+    keysetId: string,
+    secret: string | Uint8Array,
+    blindingFactor?: bigint,
+  ): OutputData {
+    const amountValue = Amount.from(amount);
+    const secretBytes = typeof secret === 'string' ? new TextEncoder().encode(secret) : secret;
+    const { r, B_ } = blindMessageForKeyset(secretBytes, keysetId, blindingFactor);
+    return new OutputData(
+      new BlindedMessage(amountValue, B_, keysetId).getSerializedBlindedMessage(),
+      r,
+      secretBytes,
+    );
+  }
+
   static createSingleRandomData(amount: AmountLike, keysetId: string): OutputData {
     const amountValue = Amount.from(amount);
     const randomHex = bytesToHex(randomBytes(32));
