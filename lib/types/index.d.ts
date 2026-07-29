@@ -581,6 +581,11 @@ export declare class AuthManager implements AuthProvider {
     export declare function computeCtfReceiveCommitment(outputs: SerializedBlindedMessage[]): string;
 
     /**
+     * Compute the exact BIP-340 message digest authorized by a bound coordinator.
+     */
+    export declare function computeCtfSettlementCoordinatorDigest(request: CtfSettlementRequest): string;
+
+    /**
      * Compute the byte-exact CTF multi-party idempotency digest.
      */
     export declare function computeCtfSettlementRequestDigest(request: CtfSettlementRequest): string;
@@ -777,6 +782,7 @@ export declare class AuthManager implements AuthProvider {
              conditionalKeysets: Array<Pick<ConditionalKeysetInfo, 'id' | 'condition_id' | 'final_expiry'>>;
          };
          refund: string;
+         coordinatorPublicKey: string;
          poolPolicy?: {
              rateN: string | bigint | number;
              rateD: string | bigint | number;
@@ -796,6 +802,7 @@ export declare class AuthManager implements AuthProvider {
          offerKeyset: string;
          expiry: string | bigint | number;
          refund: string;
+         coordinatorPublicKey?: string;
          poolPolicy?: {
              rateN: string | bigint | number;
              rateD: string | bigint | number;
@@ -961,6 +968,7 @@ export declare class AuthManager implements AuthProvider {
          offerKeyset: string;
          expiry: bigint;
          refund: string;
+         coordinatorPublicKey?: string;
          mode: CtfPayToUnlockMode;
      }
 
@@ -1048,6 +1056,7 @@ export declare class AuthManager implements AuthProvider {
          condition_id: string;
          parent_collection_id?: string;
          participants: CtfSettlementParticipant[];
+         coordinator_sig?: string;
      }
 
      export declare interface CtfSettlementResponse {
@@ -5066,6 +5075,11 @@ export declare class AuthManager implements AuthProvider {
               readonly SIG_ALL: "SIG_ALL";
           };
 
+          /**
+           * Sign one coordinator-bound request without mutating the caller's request.
+           */
+          export declare function signCtfSettlementRequest(request: CtfSettlementRequest, privateKey: string | Uint8Array): CtfSettlementRequest;
+
           export declare function signMintQuote(privkey: string, quote: string, blindedMessages: SerializedBlindedMessage[]): string;
 
           /**
@@ -5325,6 +5339,11 @@ export declare class AuthManager implements AuthProvider {
            * Validate the pool rate covenant and owner bounds using checked bigint arithmetic.
            */
           export declare function validateCtfPoolPolicyTotals(policy: CtfPoolPolicy, inputTotal: bigint, receiveTotal: bigint, changeTotal: bigint): void;
+
+          /**
+           * Verify the request-wide coordinator binding and BIP-340 signature.
+           */
+          export declare function verifyCtfSettlementCoordinatorSignature(request: CtfSettlementRequest): boolean;
 
           export declare const verifyDLEQProof: (dleq: DLEQ, B_: WeierstrassPoint<bigint>, C_: WeierstrassPoint<bigint>, A: WeierstrassPoint<bigint>) => boolean;
 

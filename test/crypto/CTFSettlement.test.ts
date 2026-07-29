@@ -7,6 +7,7 @@ import {
   buildCtfRangeRecoveryQuery,
   classifyCtfSettlementRecovery,
   computeCtfManifestCommitment,
+  computeCtfSettlementCoordinatorDigest,
   computePayToUnlockRefundDigest,
   computeCtfReceiveCommitment,
   computeCtfSettlementRequestDigest,
@@ -21,7 +22,9 @@ import {
   parseCtfSelectionBitmap,
   selectCtfManifestOutputs,
   selectCtfRangeAmounts,
+  signCtfSettlementRequest,
   signPayToUnlockRefund,
+  verifyCtfSettlementCoordinatorSignature,
   validateCtfPoolPolicyTotals,
   pointFromHex,
   recoverCtfRangeProofs,
@@ -39,6 +42,8 @@ const POINT_C = '03a40f20667ed53513075dc51e715ff2046cad64eb68960632269ba7f0210e3
 const POINT_D = '03fd4ce5a16b65576145949e6f99f445f8249fee17c606b688b504a849cdc452de';
 const POINT_E = '02648eccfa4c026960966276fa5a4cae46ce0fd432211a4f449bf84f13aa5f8303';
 const REFUND_KEY = '194603ffa36356f4a56b7df9371fc3192472351453ec7398b8da8117e7c3e104';
+const COORDINATOR_KEY = 'f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9';
+const COORDINATOR_PRIVATE_KEY = '00'.repeat(31) + '03';
 const CONDITION_ID = 'ab'.repeat(32);
 const EXPIRY_CONTEXT = {
   now: 10,
@@ -116,6 +121,12 @@ function proof(amount: string, id: string, secret: string, C: string): Proof {
   return { amount: Amount.from(amount), id, secret, C };
 }
 
+function bindCoordinator(secret: string, coordinatorPublicKey = COORDINATOR_KEY): string {
+  const wire = JSON.parse(secret) as [string, { tags: string[][] }];
+  wire[1].tags.push(['coordinator_pubkey', coordinatorPublicKey]);
+  return JSON.stringify(wire);
+}
+
 describe('NUT-CTF settlement canonical primitives', () => {
   test('matches the CDK receive commitment vector including u64 max', () => {
     expect(
@@ -127,8 +138,18 @@ describe('NUT-CTF settlement canonical primitives', () => {
   });
 
   test('strictly parses closed standard and reduced pool conditions', () => {
-    const standard = parseCtfPayToUnlockCondition(condition('01', '11'.repeat(32), KEYSET_A));
+    const standard = parseCtfPayToUnlockCondition(
+      createCtfPayToUnlockSecret({
+        nonce: '01'.repeat(32),
+        data: '11'.repeat(32),
+        offerKeyset: KEYSET_A,
+        expiry: '100',
+        refund: REFUND_KEY,
+        coordinatorPublicKey: COORDINATOR_KEY,
+      }),
+    );
     expect(standard.mode).toEqual({ kind: 'standard' });
+    expect(standard.coordinatorPublicKey).toBe(COORDINATOR_KEY);
 
     const pool = parseCtfPayToUnlockCondition(
       condition('02', '22'.repeat(32), KEYSET_A, {
@@ -242,6 +263,133 @@ describe('NUT-CTF settlement canonical primitives', () => {
 
     expect(computeCtfSettlementRequestDigest(request)).toBe(
       '48f6e7b04945ed9fd11700f14740ca13714de6b7c68f45183e60df2565ef6c26',
+    );
+  });
+
+  test('matches the CDK coordinator digest and authenticates the exact request', () => {
+    const outputA = output('9', KEYSET_B, POINT_B);
+    const outputB = output('8', KEYSET_A, POINT_A);
+    const request: CtfSettlementRequest = {
+      condition_id: '11'.repeat(32),
+      parent_collection_id: '00'.repeat(32),
+      participants: [
+        {
+          inputs: [
+            proof(
+              '9',
+              KEYSET_B,
+              bindCoordinator(condition('02', computeCtfReceiveCommitment([outputB]), KEYSET_B)),
+              POINT_B,
+            ),
+          ],
+          outputs: [outputB],
+        },
+        {
+          inputs: [
+            proof(
+              '10',
+              KEYSET_A,
+              condition('01', computeCtfReceiveCommitment([outputA]), KEYSET_A),
+              POINT_A,
+            ),
+          ],
+          outputs: [outputA],
+        },
+      ],
+    };
+
+    expect(computeCtfSettlementCoordinatorDigest(request)).toBe(
+      '36f97a2f4c9729822f03e2d37722564efd31fa3accb5419d996b22dc64a27d91',
+    );
+    const signed = signCtfSettlementRequest(request, COORDINATOR_PRIVATE_KEY);
+    expect(verifyCtfSettlementCoordinatorSignature(signed)).toBe(true);
+    expect(computeCtfSettlementRequestDigest(signed)).toBe(
+      computeCtfSettlementRequestDigest(request),
+    );
+    expect(
+      verifyCtfSettlementCoordinatorSignature({
+        ...signed,
+        condition_id: '22'.repeat(32),
+      }),
+    ).toBe(false);
+    expect(verifyCtfSettlementCoordinatorSignature(request)).toBe(false);
+    expect(
+      verifyCtfSettlementCoordinatorSignature({
+        ...request,
+        coordinator_sig: '00'.repeat(64),
+      }),
+    ).toBe(false);
+    expect(() =>
+      signCtfSettlementRequest(
+        {
+          ...request,
+          participants: request.participants.map((participant, index) =>
+            index === 1
+              ? {
+                  ...participant,
+                  inputs: participant.inputs.map((input) => ({
+                    ...input,
+                    secret: bindCoordinator(
+                      input.secret,
+                      'e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13',
+                    ),
+                  })),
+                }
+              : participant,
+          ),
+        },
+        COORDINATOR_PRIVATE_KEY,
+      ),
+    ).toThrow(/conflicting coordinator/);
+  });
+
+  test('uses raw pool-selection bytes in the coordinator digest', () => {
+    const standardOutput = output('6', KEYSET_A, POINT_B);
+    const standard = {
+      inputs: [
+        proof(
+          '6',
+          KEYSET_B,
+          condition('02', computeCtfReceiveCommitment([standardOutput]), KEYSET_B),
+          POINT_B,
+        ),
+      ],
+      outputs: [standardOutput],
+    };
+    const manifest = [
+      poolEntry(0, 'receive', '4', KEYSET_B, POINT_C),
+      poolEntry(1, 'receive', '6', KEYSET_B, POINT_D),
+      poolEntry(2, 'change', '4', KEYSET_A, POINT_E),
+      poolEntry(3, 'change', '6', KEYSET_A, POINT_A),
+    ];
+    const pool = {
+      inputs: [
+        proof(
+          '10',
+          KEYSET_A,
+          bindCoordinator(
+            condition('03', computeCtfManifestCommitment(manifest), KEYSET_A, {
+              rateN: '1',
+              rateD: '1',
+              minReceive: '6',
+              maxDebit: '6',
+            }),
+          ),
+          POINT_A,
+        ),
+      ],
+      outputs: [output('6', KEYSET_B, POINT_D), output('4', KEYSET_A, POINT_E)],
+      pool_manifest: manifest,
+      pool_selection: '06',
+    };
+    const request: CtfSettlementRequest = {
+      condition_id: '11'.repeat(32),
+      parent_collection_id: '00'.repeat(32),
+      participants: [standard, pool],
+    };
+
+    expect(computeCtfSettlementCoordinatorDigest(request)).toBe(
+      '08f81f67d68ba9cd0b8c50876e86d14a12a24d9afc3835fb6eaf3f5b612aa64f',
     );
   });
 
@@ -454,6 +602,7 @@ describe('NUT-CTF deterministic range material', () => {
       expiry: '100',
       expiryContext: EXPIRY_CONTEXT,
       refund: refund.publicKey,
+      coordinatorPublicKey: COORDINATOR_KEY,
       poolPolicy: { rateN: '5', rateD: '3', minReceive: '1', maxDebit: '6' },
     };
     const first = createCtfAuthorizationOutputs(options);
@@ -477,6 +626,7 @@ describe('NUT-CTF deterministic range material', () => {
       amounts: [Amount.one()],
       commitment: '11'.repeat(32),
       refund: deriveCtfRangeRefundKey(seed, 'expiry-bounds').publicKey,
+      coordinatorPublicKey: COORDINATOR_KEY,
     };
     expect(() =>
       createCtfAuthorizationOutputs({

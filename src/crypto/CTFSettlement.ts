@@ -1,4 +1,4 @@
-import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js';
 import { hexToBytes } from '@noble/curves/utils.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 
@@ -19,6 +19,7 @@ import { assertCanonicalKeysetId, pointFromHexAuto, pointToHex } from './curves'
 const CTF_RECEIVE_DOMAIN = 'Cashu/ctf/convert/recv';
 const CTF_MANIFEST_DOMAIN = 'Cashu/ctf/convert/manifest';
 const CTF_REQUEST_DOMAIN = 'Cashu/ctf/convert/request';
+const CTF_COORDINATOR_DOMAIN = 'Cashu/ctf/convert/coordinator';
 const PAY_TO_UNLOCK_REFUND_DOMAIN = 'Cashu/PAY_TO_UNLOCK/refund';
 
 const PAY_TO_UNLOCK_KIND = 'PAY_TO_UNLOCK';
@@ -29,6 +30,7 @@ const CONDITION_TAGS = new Set([
   'offer_keyset',
   'expiry',
   'refund',
+  'coordinator_pubkey',
   'rate_n',
   'rate_d',
   'min_receive',
@@ -58,6 +60,7 @@ export interface CtfPayToUnlockCondition {
   offerKeyset: string;
   expiry: bigint;
   refund: string;
+  coordinatorPublicKey?: string;
   mode: CtfPayToUnlockMode;
 }
 
@@ -67,6 +70,7 @@ export interface CreateCtfPayToUnlockSecretInput {
   offerKeyset: string;
   expiry: string | bigint | number;
   refund: string;
+  coordinatorPublicKey?: string;
   poolPolicy?: {
     rateN: string | bigint | number;
     rateD: string | bigint | number;
@@ -184,18 +188,67 @@ export function selectCtfRangeAmounts(
  * Compute the byte-exact CTF multi-party idempotency digest.
  */
 export function computeCtfSettlementRequestDigest(request: CtfSettlementRequest): string {
+  return computeTaggedHash(CTF_REQUEST_DOMAIN, canonicalRequestBytes(request));
+}
+
+/**
+ * Compute the exact BIP-340 message digest authorized by a bound coordinator.
+ */
+export function computeCtfSettlementCoordinatorDigest(request: CtfSettlementRequest): string {
+  return computeTaggedHash(CTF_COORDINATOR_DOMAIN, canonicalRequestBytes(request));
+}
+
+/**
+ * Sign one coordinator-bound request without mutating the caller's request.
+ */
+export function signCtfSettlementRequest(
+  request: CtfSettlementRequest,
+  privateKey: string | Uint8Array,
+): CtfSettlementRequest {
+  const privateKeyBytes = parsePrivateKey(privateKey, 'coordinator');
+  const coordinatorPublicKey = requireRequestCoordinatorPublicKey(request);
+  const derivedPublicKey = Bytes.toHex(secp256k1.getPublicKey(privateKeyBytes, true).slice(1));
+  if (derivedPublicKey !== coordinatorPublicKey) {
+    throw new CTSError('coordinator private key does not match PAY_TO_UNLOCK condition');
+  }
+  return {
+    ...request,
+    coordinator_sig: schnorrSignDigest(
+      computeCtfSettlementCoordinatorDigest(request),
+      privateKeyBytes,
+    ),
+  };
+}
+
+/**
+ * Verify the request-wide coordinator binding and BIP-340 signature.
+ */
+export function verifyCtfSettlementCoordinatorSignature(request: CtfSettlementRequest): boolean {
+  try {
+    const coordinatorPublicKey = requestCoordinatorPublicKey(request);
+    if (coordinatorPublicKey === undefined) return request.coordinator_sig === undefined;
+    if (!/^[0-9a-f]{128}$/.test(request.coordinator_sig ?? '')) return false;
+    return schnorr.verify(
+      hexToBytes(request.coordinator_sig!),
+      hexToBytes(computeCtfSettlementCoordinatorDigest(request)),
+      hexToBytes(coordinatorPublicKey),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function canonicalRequestBytes(request: CtfSettlementRequest): Uint8Array {
   const conditionId = requireCanonicalHash(request.condition_id, 'condition_id');
   const parent = requireCanonicalHash(
     request.parent_collection_id ?? ZERO_HASH,
     'parent_collection_id',
   );
   requireCanonicalParticipantOrder(request.participants);
-  const participants = request.participants.map((participant) =>
-    Bytes.fromString(canonicalParticipant(participant)),
-  );
-  return computeTaggedHash(
-    CTF_REQUEST_DOMAIN,
-    Bytes.concat(hexToBytes(conditionId), hexToBytes(parent), ...participants),
+  return Bytes.concat(
+    hexToBytes(conditionId),
+    hexToBytes(parent),
+    ...request.participants.map(canonicalParticipantBytes),
   );
 }
 
@@ -207,12 +260,18 @@ export function createCtfPayToUnlockSecret(input: CreateCtfPayToUnlockSecretInpu
   const data = requireCanonicalHash(input.data, 'data');
   const offerKeyset = requireCanonicalKeysetId(input.offerKeyset, 'offer_keyset');
   const expiry = parseMinimalUnsigned(input.expiry, 'expiry', MAX_U64).toString();
-  const refund = requireXOnlyPublicKey(input.refund);
+  const refund = requireXOnlyPublicKey(input.refund, 'refund');
   const tags = [
     ['offer_keyset', offerKeyset],
     ['expiry', expiry],
     ['refund', refund],
   ];
+  if (input.coordinatorPublicKey !== undefined) {
+    tags.push([
+      'coordinator_pubkey',
+      requireXOnlyPublicKey(input.coordinatorPublicKey, 'coordinator public key'),
+    ]);
+  }
   if (input.poolPolicy) tags.push(...poolPolicyTags(parsePoolPolicy(input.poolPolicy)));
   return JSON.stringify([PAY_TO_UNLOCK_KIND, { data, nonce, tags }]);
 }
@@ -228,7 +287,15 @@ export function parseCtfPayToUnlockCondition(secret: string): CtfPayToUnlockCond
     data: requireCanonicalHash(data.data, 'data'),
     offerKeyset: requireCanonicalKeysetId(requiredTag(tags, 'offer_keyset'), 'offer_keyset'),
     expiry: parseMinimalUnsigned(requiredTag(tags, 'expiry'), 'expiry', MAX_U64),
-    refund: requireXOnlyPublicKey(requiredTag(tags, 'refund')),
+    refund: requireXOnlyPublicKey(requiredTag(tags, 'refund'), 'refund'),
+    ...(tags.has('coordinator_pubkey')
+      ? {
+          coordinatorPublicKey: requireXOnlyPublicKey(
+            requiredTag(tags, 'coordinator_pubkey'),
+            'coordinator public key',
+          ),
+        }
+      : {}),
     mode: parseConditionMode(tags),
   };
 }
@@ -276,7 +343,7 @@ export function computePayToUnlockRefundDigest(request: SwapRequest): string {
  * Attach exactly one refund signature to every `PAY_TO_UNLOCK` input.
  */
 export function signPayToUnlockRefund(request: SwapRequest, privateKey: string): SwapRequest {
-  const privateKeyBytes = parsePrivateKey(privateKey);
+  const privateKeyBytes = parsePrivateKey(privateKey, 'refund');
   const refund = Bytes.toHex(secp256k1.getPublicKey(privateKeyBytes, true).slice(1));
   const digest = computePayToUnlockRefundDigest(request);
   const inputs = request.inputs.map((proof) => {
@@ -311,7 +378,7 @@ function canonicalPoolEntry(entry: CtfPoolEntry): string {
   });
 }
 
-function canonicalParticipant(participant: CtfSettlementParticipant): string {
+function canonicalParticipantBytes(participant: CtfSettlementParticipant): Uint8Array {
   requireCanonicalInputOrder(participant.inputs);
   const value: Record<string, CanonicalValue> = {
     inputs: participant.inputs.map((proof) => canonicalProofValue(proof, true)),
@@ -338,9 +405,12 @@ function canonicalParticipant(participant: CtfSettlementParticipant): string {
       index: entry.index,
       role: entry.role,
     }));
-    value.pool_selection = participant.pool_selection;
+    return Bytes.concat(
+      Bytes.fromString(canonicalJson(value)),
+      Bytes.fromHex(participant.pool_selection),
+    );
   }
-  return canonicalJson(value);
+  return Bytes.fromString(canonicalJson(value));
 }
 
 function canonicalProofValue(proof: Proof, includeWitness: boolean): CanonicalValue {
@@ -571,29 +641,63 @@ function requireCanonicalKeysetId(value: string, field: string): string {
   return assertCanonicalKeysetId(value, field);
 }
 
-function requireXOnlyPublicKey(value: string): string {
+function requireXOnlyPublicKey(value: string, field: string): string {
   if (!/^[0-9a-f]{64}$/.test(value)) {
-    throw new CTSError('refund must be canonical lowercase x-only public key hex');
+    throw new CTSError(`${field} must be canonical lowercase x-only public key hex`);
   }
   try {
     secp256k1.Point.fromHex(`02${value}`);
   } catch (e) {
-    throw new CTSError('refund is not a valid x-only public key', { cause: e });
+    throw new CTSError(`${field} is not a valid x-only public key`, { cause: e });
   }
   return value;
 }
 
-function parsePrivateKey(value: string): Uint8Array {
+function parsePrivateKey(value: string | Uint8Array, field: string): Uint8Array {
+  if (value instanceof Uint8Array) {
+    if (value.length !== 32) {
+      throw new CTSError(`${field} private key must contain exactly 32 bytes`);
+    }
+    try {
+      secp256k1.getPublicKey(value, true);
+    } catch (e) {
+      throw new CTSError(`${field} private key is invalid`, { cause: e });
+    }
+    return value;
+  }
   if (!/^[0-9a-f]{64}$/.test(value)) {
-    throw new CTSError('refund private key must be canonical lowercase 32-byte hex');
+    throw new CTSError(`${field} private key must be canonical lowercase 32-byte hex`);
   }
   const bytes = hexToBytes(value);
   try {
     secp256k1.getPublicKey(bytes, true);
   } catch (e) {
-    throw new CTSError('refund private key is invalid', { cause: e });
+    throw new CTSError(`${field} private key is invalid`, { cause: e });
   }
   return bytes;
+}
+
+function requireRequestCoordinatorPublicKey(request: CtfSettlementRequest): string {
+  const coordinatorPublicKey = requestCoordinatorPublicKey(request);
+  if (coordinatorPublicKey === undefined) {
+    throw new CTSError('settlement request is not bound to a coordinator');
+  }
+  return coordinatorPublicKey;
+}
+
+function requestCoordinatorPublicKey(request: CtfSettlementRequest): string | undefined {
+  let coordinatorPublicKey: string | undefined;
+  for (const participant of request.participants) {
+    for (const proof of participant.inputs) {
+      const candidate = parseCtfPayToUnlockCondition(proof.secret).coordinatorPublicKey;
+      if (candidate === undefined) continue;
+      if (coordinatorPublicKey !== undefined && coordinatorPublicKey !== candidate) {
+        throw new CTSError('settlement request contains conflicting coordinator keys');
+      }
+      coordinatorPublicKey = candidate;
+    }
+  }
+  return coordinatorPublicKey;
 }
 
 function requireU64Amount(value: Amount): string {

@@ -122,6 +122,7 @@ export interface CtfSettlementRequest {
   condition_id: string;
   parent_collection_id?: string;
   participants: CtfSettlementParticipant[];
+  coordinator_sig?: string;
 }
 
 export interface CtfSettlementResponse {
