@@ -71,6 +71,7 @@ export interface CreateCtfAuthorizationOutputsInput {
     conditionalKeysets: Array<Pick<ConditionalKeysetInfo, 'id' | 'condition_id' | 'final_expiry'>>;
   };
   refund: string;
+  coordinatorPublicKey: string;
   poolPolicy?: {
     rateN: string | bigint | number;
     rateD: string | bigint | number;
@@ -156,6 +157,7 @@ export function createCtfAuthorizationOutputs(
       offerKeyset: input.offerKeysetId,
       expiry: input.expiry,
       refund: input.refund,
+      coordinatorPublicKey: input.coordinatorPublicKey,
       poolPolicy: input.poolPolicy,
     });
     return OutputData.createSingleData(

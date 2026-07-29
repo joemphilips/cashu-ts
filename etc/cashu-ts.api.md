@@ -295,6 +295,9 @@ export function computeCtfManifestCommitment(manifest: CtfPoolEntry[]): string;
 export function computeCtfReceiveCommitment(outputs: SerializedBlindedMessage[]): string;
 
 // @public
+export function computeCtfSettlementCoordinatorDigest(request: CtfSettlementRequest): string;
+
+// @public
 export function computeCtfSettlementRequestDigest(request: CtfSettlementRequest): string;
 
 // @public
@@ -445,6 +448,8 @@ export interface CreateCtfAuthorizationOutputsInput {
     // (undocumented)
     commitment: string;
     // (undocumented)
+    coordinatorPublicKey: string;
+    // (undocumented)
     expiry: string | bigint | number;
     // (undocumented)
     expiryContext: {
@@ -475,6 +480,8 @@ export function createCtfPayToUnlockSecret(input: CreateCtfPayToUnlockSecretInpu
 
 // @public (undocumented)
 export interface CreateCtfPayToUnlockSecretInput {
+    // (undocumented)
+    coordinatorPublicKey?: string;
     // (undocumented)
     data: string;
     // (undocumented)
@@ -612,6 +619,8 @@ export interface CtfConvertResponse {
 // @public (undocumented)
 export interface CtfPayToUnlockCondition {
     // (undocumented)
+    coordinatorPublicKey?: string;
+    // (undocumented)
     data: string;
     // (undocumented)
     expiry: bigint;
@@ -738,6 +747,8 @@ export type CtfSettlementRecoveryClassification = 'confirmed' | 'waiting' | 'ref
 export interface CtfSettlementRequest {
     // (undocumented)
     condition_id: string;
+    // (undocumented)
+    coordinator_sig?: string;
     // (undocumented)
     parent_collection_id?: string;
     // (undocumented)
@@ -2506,6 +2517,9 @@ export const SigFlags: {
     readonly SIG_ALL: "SIG_ALL";
 };
 
+// @public
+export function signCtfSettlementRequest(request: CtfSettlementRequest, privateKey: string | Uint8Array): CtfSettlementRequest;
+
 // @public (undocumented)
 export function signMintQuote(privkey: string, quote: string, blindedMessages: SerializedBlindedMessage[]): string;
 
@@ -2626,6 +2640,9 @@ export function unblindSignatureBls(C_: G1Point, r: bigint): G1Point;
 
 // @public
 export function validateCtfPoolPolicyTotals(policy: CtfPoolPolicy, inputTotal: bigint, receiveTotal: bigint, changeTotal: bigint): void;
+
+// @public
+export function verifyCtfSettlementCoordinatorSignature(request: CtfSettlementRequest): boolean;
 
 // @public (undocumented)
 export const verifyDLEQProof: (dleq: DLEQ, B_: WeierstrassPoint<bigint>, C_: WeierstrassPoint<bigint>, A: WeierstrassPoint<bigint>) => boolean;
