@@ -527,7 +527,7 @@ describe('NUT-CTF deterministic range material', () => {
     expect(() =>
       createCtfAuthorizationOutputs({
         ...base,
-        expiry: 150,
+        expiry: 109,
         expiryContext: {
           now: 10,
           maxExpirySeconds: 100,
@@ -542,6 +542,24 @@ describe('NUT-CTF deterministic range material', () => {
         },
       }),
     ).not.toThrow();
+    expect(() =>
+      createCtfAuthorizationOutputs({
+        ...base,
+        expiry: 110,
+        expiryContext: {
+          now: 10,
+          maxExpirySeconds: 100,
+          condition: { condition_id: CONDITION_ID, keysets: { YES: KEYSET_B } },
+          conditionalKeysets: [
+            {
+              id: KEYSET_B,
+              condition_id: CONDITION_ID,
+              final_expiry: 200,
+            },
+          ],
+        },
+      }),
+    ).toThrow(/effective keyset expiry ceiling/);
     expect(() =>
       createCtfAuthorizationOutputs({
         ...base,
