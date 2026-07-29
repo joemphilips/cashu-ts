@@ -334,15 +334,8 @@ function validateAuthorizationExpiry(
       final_expiry === undefined ? [] : [parseUnsigned(final_expiry, 'final_expiry')],
     )
     .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
-  const hasMissingExpiry = keysets.some(({ final_expiry }) => final_expiry === undefined);
-  const ceiling = hasMissingExpiry
-    ? explicit[0] === undefined
-      ? fallback
-      : explicit[0] < fallback
-        ? explicit[0]
-        : fallback
-    : explicit[0];
-  if (ceiling === undefined || expiry >= ceiling) {
+  const ceiling = explicit[0] === undefined || fallback < explicit[0] ? fallback : explicit[0];
+  if (expiry >= ceiling) {
     throw new CTSError('CTF authorization expiry must precede the effective keyset expiry ceiling');
   }
 }
