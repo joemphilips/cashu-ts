@@ -653,13 +653,7 @@ export declare class AuthManager implements AuthProvider {
         outputs: ConditionalSwapOutputGroup[];
     }
 
-    export declare interface ConditionalSwapOutputGroup {
-        label: string;
-        kind: 'random' | 'p2pk';
-        amount: AmountLike;
-        p2pk?: P2PKOptions;
-        customSplit?: AmountLike[];
-    }
+    export declare type ConditionalSwapOutputGroup = GeneratedConditionalSwapOutputGroup | ExactConditionalSwapOutputGroup;
 
     export declare interface ConditionalSwapPreview {
         keysetId: string;
@@ -1281,6 +1275,12 @@ export declare class AuthManager implements AuthProvider {
 
       export declare type Enumerate<N extends number, Acc extends number[] = []> = Acc['length'] extends N ? Acc[number] : Enumerate<N, [...Acc, Acc['length']]>;
 
+      export declare interface ExactConditionalSwapOutputGroup {
+          label: string;
+          kind: 'custom';
+          data: OutputData[];
+      }
+
       /**
        * Find the private key that can sign for a given compressed public key.
        *
@@ -1294,6 +1294,14 @@ export declare class AuthManager implements AuthProvider {
       export declare type G1Point = WeierstrassPoint<bigint>;
 
       export declare type G2Point = WeierstrassPoint<Fp2>;
+
+      export declare interface GeneratedConditionalSwapOutputGroup {
+          label: string;
+          kind: 'random' | 'p2pk';
+          amount: AmountLike;
+          p2pk?: P2PKOptions;
+          customSplit?: AmountLike[];
+      }
 
       export declare interface GetConditionalKeysetsQuery {
           since?: number;

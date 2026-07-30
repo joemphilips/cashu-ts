@@ -19,6 +19,8 @@ export type {
   ConditionalSwapOptions,
   ConditionalSwapOutputGroup,
   ConditionalSwapPreview,
+  ExactConditionalSwapOutputGroup,
+  GeneratedConditionalSwapOutputGroup,
   RedeemOutcomeProofsOptions,
   WalletCtf,
 } from './wallet/Wallet';

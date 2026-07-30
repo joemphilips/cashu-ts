@@ -99,13 +99,23 @@ import { WalletOps } from './WalletOps';
 
 const PENDING_KEYSET_ID = '__PENDING__';
 
-export interface ConditionalSwapOutputGroup {
+export interface GeneratedConditionalSwapOutputGroup {
   label: string;
   kind: 'random' | 'p2pk';
   amount: AmountLike;
   p2pk?: P2PKOptions;
   customSplit?: AmountLike[];
 }
+
+export interface ExactConditionalSwapOutputGroup {
+  label: string;
+  kind: 'custom';
+  data: OutputData[];
+}
+
+export type ConditionalSwapOutputGroup =
+  | GeneratedConditionalSwapOutputGroup
+  | ExactConditionalSwapOutputGroup;
 
 export interface ConditionalSwapOptions {
   /**
@@ -1424,6 +1434,19 @@ class Wallet {
         throw new CTSError(`prepareConditionalSwap output label is duplicated: ${group.label}`);
       }
       seenLabels.add(group.label);
+      if (group.kind === 'custom') {
+        if (group.data.length === 0) {
+          throw new CTSError(`prepareConditionalSwap output ${group.label} is empty`);
+        }
+        const amount = OutputData.sumOutputAmounts(group.data);
+        if (amount.isZero()) {
+          throw new CTSError(
+            `prepareConditionalSwap output ${group.label} amount must be positive`,
+          );
+        }
+        outputTotal = outputTotal.add(amount);
+        return { label: group.label, data: [...group.data] };
+      }
       const amount = Amount.from(group.amount);
       if (amount.isZero()) {
         throw new CTSError(`prepareConditionalSwap output ${group.label} amount must be positive`);

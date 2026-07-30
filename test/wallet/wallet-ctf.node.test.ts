@@ -30,6 +30,46 @@ function conditionalKeys(inputFeePpk = 0) {
   };
 }
 
+function useConditionalSwapMint(
+  onSwap?: (outputs: Array<{ amount: number; id: string; B_: string }>) => void,
+) {
+  server.use(
+    http.get(mintUrl + '/v1/conditional_keysets', () =>
+      HttpResponse.json({
+        keysets: [
+          {
+            id: CONDITIONAL_KEYSET_ID,
+            unit: 'sat',
+            active: true,
+            input_fee_ppk: 0,
+            final_expiry: 1754296607,
+            condition_id: CONDITION_ID,
+            outcome_collection: 'YES',
+            outcome_collection_id: OUTCOME_COLLECTION_ID,
+            registered_at: 1_700_000_000,
+          },
+        ],
+      }),
+    ),
+    http.get(mintUrl + '/v1/keys/' + CONDITIONAL_KEYSET_ID, () =>
+      HttpResponse.json({ keysets: [conditionalKeys()] }),
+    ),
+    http.post(mintUrl + '/v1/swap', async ({ request }) => {
+      const body = (await request.json()) as {
+        outputs: Array<{ amount: number; id: string; B_: string }>;
+      };
+      onSwap?.(body.outputs);
+      return HttpResponse.json({
+        signatures: body.outputs.map((output) => ({
+          id: output.id,
+          amount: output.amount,
+          C_: '021179b095a67380ab3285424b563b7aab9818bd38068e1930641b3dceb364d422',
+        })),
+      });
+    }),
+  );
+}
+
 describe('Wallet.swapConditional', () => {
   test('exposes the optional wallet.ctf facade only when CTF is enabled', () => {
     expect(new Wallet(mint).ctf).toBeUndefined();
@@ -42,41 +82,7 @@ describe('Wallet.swapConditional', () => {
 
   test('pins every output to the source conditional keyset instead of the wallet regular keyset', async () => {
     const seenOutputs: Array<{ amount: string | number; id: string }> = [];
-    server.use(
-      http.get(mintUrl + '/v1/conditional_keysets', () =>
-        HttpResponse.json({
-          keysets: [
-            {
-              id: CONDITIONAL_KEYSET_ID,
-              unit: 'sat',
-              active: true,
-              input_fee_ppk: 0,
-              final_expiry: 1754296607,
-              condition_id: CONDITION_ID,
-              outcome_collection: 'YES',
-              outcome_collection_id: OUTCOME_COLLECTION_ID,
-              registered_at: 1_700_000_000,
-            },
-          ],
-        }),
-      ),
-      http.get(mintUrl + '/v1/keys/' + CONDITIONAL_KEYSET_ID, () =>
-        HttpResponse.json({ keysets: [conditionalKeys()] }),
-      ),
-      http.post(mintUrl + '/v1/swap', async ({ request }) => {
-        const body = (await request.json()) as {
-          outputs: Array<{ amount: string | number; id: string }>;
-        };
-        seenOutputs.push(...body.outputs);
-        return HttpResponse.json({
-          signatures: body.outputs.map((output) => ({
-            id: output.id,
-            amount: output.amount,
-            C_: '021179b095a67380ab3285424b563b7aab9818bd38068e1930641b3dceb364d422',
-          })),
-        });
-      }),
-    );
+    useConditionalSwapMint((outputs) => seenOutputs.push(...outputs));
     const wallet = new Wallet(mint);
 
     const result = await wallet.swapConditional({
@@ -112,32 +118,9 @@ describe('Wallet.swapConditional', () => {
 
   test('rejects generated conditional outputs with a mismatched keyset before mint submission', async () => {
     let swapCalled = false;
-    server.use(
-      http.get(mintUrl + '/v1/conditional_keysets', () =>
-        HttpResponse.json({
-          keysets: [
-            {
-              id: CONDITIONAL_KEYSET_ID,
-              unit: 'sat',
-              active: true,
-              input_fee_ppk: 0,
-              final_expiry: 1754296607,
-              condition_id: CONDITION_ID,
-              outcome_collection: 'YES',
-              outcome_collection_id: OUTCOME_COLLECTION_ID,
-              registered_at: 1_700_000_000,
-            },
-          ],
-        }),
-      ),
-      http.get(mintUrl + '/v1/keys/' + CONDITIONAL_KEYSET_ID, () =>
-        HttpResponse.json({ keysets: [conditionalKeys()] }),
-      ),
-      http.post(mintUrl + '/v1/swap', () => {
-        swapCalled = true;
-        return HttpResponse.json({ signatures: [] });
-      }),
-    );
+    useConditionalSwapMint(() => {
+      swapCalled = true;
+    });
     const mismatchedKeysetId = '01' + 'dd'.repeat(32);
     const createRandomDataSpy = vi
       .spyOn(OutputData, 'createRandomData')
@@ -160,40 +143,7 @@ describe('Wallet.swapConditional', () => {
   });
 
   test('can create P2PK-locked conditional outputs and unlocked same-keyset change', async () => {
-    server.use(
-      http.get(mintUrl + '/v1/conditional_keysets', () =>
-        HttpResponse.json({
-          keysets: [
-            {
-              id: CONDITIONAL_KEYSET_ID,
-              unit: 'sat',
-              active: true,
-              input_fee_ppk: 0,
-              final_expiry: 1754296607,
-              condition_id: CONDITION_ID,
-              outcome_collection: 'YES',
-              outcome_collection_id: OUTCOME_COLLECTION_ID,
-              registered_at: 1_700_000_000,
-            },
-          ],
-        }),
-      ),
-      http.get(mintUrl + '/v1/keys/' + CONDITIONAL_KEYSET_ID, () =>
-        HttpResponse.json({ keysets: [conditionalKeys()] }),
-      ),
-      http.post(mintUrl + '/v1/swap', async ({ request }) => {
-        const body = (await request.json()) as {
-          outputs: Array<{ amount: string | number; id: string }>;
-        };
-        return HttpResponse.json({
-          signatures: body.outputs.map((output) => ({
-            id: output.id,
-            amount: output.amount,
-            C_: '021179b095a67380ab3285424b563b7aab9818bd38068e1930641b3dceb364d422',
-          })),
-        });
-      }),
-    );
+    useConditionalSwapMint();
     const wallet = new Wallet(mint);
     const pubkeyA = '02' + 'aa'.repeat(32);
     const pubkeyB = '02' + 'bb'.repeat(32);
@@ -229,6 +179,63 @@ describe('Wallet.swapConditional', () => {
       }),
     ]);
     expect(result.change[0].id).toBe(CONDITIONAL_KEYSET_ID);
+  });
+
+  test('submits caller-supplied exact conditional outputs without regenerating them', async () => {
+    const seenOutputs: Array<{ amount: number; id: string; B_: string }> = [];
+    useConditionalSwapMint((outputs) => seenOutputs.push(...outputs));
+    const exact = [
+      OutputData.createSingleRandomData(1, CONDITIONAL_KEYSET_ID),
+      OutputData.createSingleRandomData(2, CONDITIONAL_KEYSET_ID),
+    ];
+    const wallet = new Wallet(mint);
+
+    const prepared = await wallet.prepareConditionalSwap({
+      inputs: [conditionalProof(3, 'conditional-input')],
+      outputs: [{ label: 'authorization', kind: 'custom', data: exact }],
+    });
+    expect(prepared.outputDataByLabel.authorization).toEqual(exact);
+
+    const result = await wallet.completeConditionalSwap(prepared);
+
+    expect(seenOutputs).toEqual(
+      exact.map(({ blindedMessage }) => ({
+        id: blindedMessage.id,
+        amount: blindedMessage.amount.toNumber(),
+        B_: blindedMessage.B_,
+      })),
+    );
+    expect(result.authorization.map((proof) => proof.secret)).toEqual(
+      exact.map((output) => new TextDecoder().decode(output.secret)),
+    );
+  });
+
+  test('rejects invalid exact conditional outputs before mint submission', async () => {
+    let swapCalled = false;
+    useConditionalSwapMint(() => {
+      swapCalled = true;
+    });
+    const wallet = new Wallet(mint);
+
+    await expect(
+      wallet.swapConditional({
+        inputs: [conditionalProof(3, 'conditional-input')],
+        outputs: [{ label: 'authorization', kind: 'custom', data: [] }],
+      }),
+    ).rejects.toThrow(/output authorization is empty/);
+    await expect(
+      wallet.swapConditional({
+        inputs: [conditionalProof(2, 'conditional-input')],
+        outputs: [
+          {
+            label: 'authorization',
+            kind: 'custom',
+            data: [OutputData.createSingleRandomData(2, '01' + 'dd'.repeat(32))],
+          },
+        ],
+      }),
+    ).rejects.toThrow(/uses keyset/);
+    expect(swapCalled).toBe(false);
   });
 });
 

@@ -358,18 +358,7 @@ export interface ConditionalSwapOptions {
 }
 
 // @public (undocumented)
-export interface ConditionalSwapOutputGroup {
-    // (undocumented)
-    amount: AmountLike;
-    // (undocumented)
-    customSplit?: AmountLike[];
-    // (undocumented)
-    kind: 'random' | 'p2pk';
-    // (undocumented)
-    label: string;
-    // (undocumented)
-    p2pk?: P2PKOptions;
-}
+export type ConditionalSwapOutputGroup = GeneratedConditionalSwapOutputGroup | ExactConditionalSwapOutputGroup;
 
 // @public (undocumented)
 export interface ConditionalSwapPreview {
@@ -872,6 +861,16 @@ export type DLEQ = {
 // @public (undocumented)
 export type Enumerate<N extends number, Acc extends number[] = []> = Acc['length'] extends N ? Acc[number] : Enumerate<N, [...Acc, Acc['length']]>;
 
+// @public (undocumented)
+export interface ExactConditionalSwapOutputGroup {
+    // (undocumented)
+    data: OutputData[];
+    // (undocumented)
+    kind: 'custom';
+    // (undocumented)
+    label: string;
+}
+
 // @public
 export function findSigningKey(pubkey: string, privkeys: string | string[]): string;
 
@@ -880,6 +879,20 @@ export type G1Point = WeierstrassPoint<bigint>;
 
 // @public (undocumented)
 export type G2Point = WeierstrassPoint<Fp2>;
+
+// @public (undocumented)
+export interface GeneratedConditionalSwapOutputGroup {
+    // (undocumented)
+    amount: AmountLike;
+    // (undocumented)
+    customSplit?: AmountLike[];
+    // (undocumented)
+    kind: 'random' | 'p2pk';
+    // (undocumented)
+    label: string;
+    // (undocumented)
+    p2pk?: P2PKOptions;
+}
 
 // @public (undocumented)
 export interface GetConditionalKeysetsQuery {
