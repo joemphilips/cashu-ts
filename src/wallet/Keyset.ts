@@ -1,9 +1,12 @@
 import { hexToBytes } from '@noble/curves/utils.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { utf8ToBytes } from '@noble/hashes/utils.js';
 
 import { deriveConditionalKeysetId } from '../crypto';
+import { hashToCurve } from '../crypto/curve_secp';
 import { CTSError } from '../model/Errors';
 import { type ConditionalKeysetMetadata, type MintKeyset, type MintKeys } from '../model/types';
-import { isValidHex, deriveKeysetId, isBase64String } from '../utils';
+import { Bytes, isValidHex, deriveKeysetId, isBase64String } from '../utils';
 import { normalizeMintKeyset, normalizeMintKeys } from '../utils/normalizeNumbers';
 
 export class Keyset {
@@ -160,6 +163,11 @@ export class Keyset {
   ): boolean {
     try {
       if (!keys.keys || Object.keys(keys.keys).length === 0) return false;
+      const outcomeCollectionId = deriveOutcomeCollectionId(
+        conditional.conditionId,
+        conditional.outcomeCollection,
+      );
+      if (outcomeCollectionId !== conditional.outcomeCollectionId.toLowerCase()) return false;
       const derivedId = deriveConditionalKeysetId({
         keys: keys.keys,
         input_fee_ppk: keys.input_fee_ppk,
@@ -213,4 +221,15 @@ export class Keyset {
     }
     return ks;
   }
+}
+
+function deriveOutcomeCollectionId(conditionId: string, outcomeCollection: string): string {
+  if (!/^[0-9a-fA-F]{64}$/.test(conditionId)) {
+    throw new CTSError('conditionId must be a 64-character hex string');
+  }
+  const tagHash = sha256(utf8ToBytes('Cashu_outcome_collection_id'));
+  const commitment = sha256(
+    Bytes.concat(tagHash, tagHash, hexToBytes(conditionId), utf8ToBytes(outcomeCollection)),
+  );
+  return hashToCurve(commitment).toHex(false).slice(2, 66);
 }

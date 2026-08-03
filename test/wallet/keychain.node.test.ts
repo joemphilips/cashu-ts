@@ -10,8 +10,9 @@ const mintUrl = 'http://localhost:3338';
 const mint = new Mint(mintUrl);
 const unit = 'sat';
 const CTF_CONDITION_ID = 'aa'.repeat(32);
-const CTF_OUTCOME_COLLECTION_ID = 'cc'.repeat(32);
-const CTF_KEYSET_ID = '0170110f06b9bb85565a6746ca5715f877b99db14d87219f6e9030cb529f61e6ea';
+const CTF_OUTCOME_COLLECTION_ID =
+  'def71b1ff5a53597a8175729a718b1bf931d12c2a76500f208ab450c12444c4e';
+const CTF_KEYSET_ID = '01e9c2aad6d0fdad988a3b58ef6940416c9bb12b3dd344b5320d7a3f28e919284c';
 
 const dummyKeysResp: { keysets: MintKeys[] } = {
   keysets: [
@@ -396,6 +397,37 @@ describe('KeyChain initialization', () => {
               final_expiry: 1754296607,
               condition_id: 'bb'.repeat(32),
               outcome_collection: 'YES',
+              outcome_collection_id: CTF_OUTCOME_COLLECTION_ID,
+            },
+          ],
+        }),
+      ),
+      http.get(mintUrl + '/v1/keys/' + CTF_KEYSET_ID, () =>
+        HttpResponse.json({
+          keysets: [{ ...DUMMY_TEST_KEYS, id: CTF_KEYSET_ID }],
+        }),
+      ),
+    );
+
+    const keyChain = new KeyChain(mint, unit);
+    await expect(keyChain.loadConditionalKeyset(CTF_KEYSET_ID)).rejects.toThrow(
+      /Conditional keyset verification failed/,
+    );
+  });
+
+  test('rejects a relabeled outcome collection with the same outcome collection id', async () => {
+    server.use(
+      http.get(mintUrl + '/v1/conditional_keysets', () =>
+        HttpResponse.json({
+          keysets: [
+            {
+              id: CTF_KEYSET_ID,
+              unit: 'sat',
+              active: true,
+              input_fee_ppk: 0,
+              final_expiry: 1754296607,
+              condition_id: CTF_CONDITION_ID,
+              outcome_collection: 'NO',
               outcome_collection_id: CTF_OUTCOME_COLLECTION_ID,
             },
           ],
