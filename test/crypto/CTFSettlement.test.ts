@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   Amount,
+  OutputData,
   buildCtfRangeRecoveryQuery,
   classifyCtfSettlementRecovery,
   computeCtfManifestCommitment,
@@ -14,6 +15,7 @@ import {
   createCtfAuthorizationOutputs,
   createCtfPayToUnlockSecret,
   createCtfRangeManifest,
+  deriveCtfRangeManifestOutputData,
   createCtfSelectionBitmap,
   createBlindSignature,
   deriveCtfRangeRefundKey,
@@ -475,6 +477,54 @@ describe('NUT-CTF deterministic range material', () => {
     );
     expect(deriveCtfRangeRefundKey(seed, 'order-43')).not.toEqual(
       deriveCtfRangeRefundKey(seed, 'order-42'),
+    );
+  });
+
+  test('derives each persisted global manifest entry exactly', () => {
+    const manifest = createCtfRangeManifest({
+      seed,
+      operationId: 'order-42',
+      receiveKeyset,
+      offerKeyset,
+      maxReceive: '10',
+      maxChange: '9',
+      maxEntries: 16,
+    });
+
+    manifest.entries.forEach(({ entry, outputData }) => {
+      const derived = deriveCtfRangeManifestOutputData({
+        seed,
+        rangeOperationId: 'order-42',
+        manifestIndex: Number(entry.index),
+        amount: entry.amount,
+        keysetId: entry.id,
+      });
+      expect(OutputData.serialize(derived)).toEqual(OutputData.serialize(outputData));
+    });
+  });
+
+  test('rejects invalid persisted manifest entry inputs', () => {
+    const valid = {
+      seed,
+      rangeOperationId: 'order-42',
+      manifestIndex: 0,
+      amount: '1',
+      keysetId: KEYSET_A,
+    };
+    expect(() => deriveCtfRangeManifestOutputData({ ...valid, manifestIndex: -1 })).toThrow(
+      /manifestIndex/,
+    );
+    expect(() => deriveCtfRangeManifestOutputData({ ...valid, amount: '0' })).toThrow(
+      /range maximum/,
+    );
+    expect(() => deriveCtfRangeManifestOutputData({ ...valid, amount: '3' })).toThrow(
+      /range maximum/,
+    );
+    expect(() => deriveCtfRangeManifestOutputData({ ...valid, keysetId: 'not-a-keyset' })).toThrow(
+      /NUT-02/,
+    );
+    expect(() => deriveCtfRangeManifestOutputData({ ...valid, rangeOperationId: '' })).toThrow(
+      /operationId/,
     );
   });
 
