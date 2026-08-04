@@ -794,6 +794,23 @@ export interface DeriveConditionalKeysetIdInput {
 }
 
 // @public
+export function deriveCtfRangeManifestOutputData(input: DeriveCtfRangeManifestOutputDataInput): OutputData;
+
+// @public (undocumented)
+export interface DeriveCtfRangeManifestOutputDataInput {
+    // (undocumented)
+    amount: AmountLike;
+    // (undocumented)
+    keysetId: string;
+    // (undocumented)
+    manifestIndex: number;
+    // (undocumented)
+    rangeOperationId: string;
+    // (undocumented)
+    seed: Uint8Array;
+}
+
+// @public
 export function deriveCtfRangeRecoverySelection(entries: CtfRangeManifestEntryMaterial[], restoredOutputs: SerializedBlindedMessage[]): string;
 
 // @public

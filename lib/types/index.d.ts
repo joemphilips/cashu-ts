@@ -1114,6 +1114,21 @@ export declare class AuthManager implements AuthProvider {
      }
 
      /**
+      * Derive one exact global entry from a persisted CTF range manifest.
+      *
+      * This helper only supports the fixed range-manifest derivation scope.
+      */
+     export declare function deriveCtfRangeManifestOutputData(input: DeriveCtfRangeManifestOutputDataInput): OutputData;
+
+     export declare interface DeriveCtfRangeManifestOutputDataInput {
+         seed: Uint8Array;
+         rangeOperationId: string;
+         manifestIndex: number;
+         amount: AmountLike;
+         keysetId: string;
+     }
+
+     /**
       * Derive the exact selected bitmap after a complete all-manifest NUT-09 restore.
       */
      export declare function deriveCtfRangeRecoverySelection(entries: CtfRangeManifestEntryMaterial[], restoredOutputs: SerializedBlindedMessage[]): string;
