@@ -52,6 +52,14 @@ export interface CreateCtfRangeManifestInput {
   maxEntries: number;
 }
 
+export interface DeriveCtfRangeManifestOutputDataInput {
+  seed: Uint8Array;
+  rangeOperationId: string;
+  manifestIndex: number;
+  amount: AmountLike;
+  keysetId: string;
+}
+
 export interface CtfRangeRefundKey {
   privateKey: string;
   publicKey: string;
@@ -121,6 +129,31 @@ export function createCtfRangeManifest(
   const entries = specs.map((spec, index) => createManifestEntry(seed, spec, index));
   const serialized = entries.map(({ entry }) => entry);
   return { entries, serialized, commitment: computeCtfManifestCommitment(serialized) };
+}
+
+/**
+ * Derive one exact global entry from a persisted CTF range manifest.
+ *
+ * This helper only supports the fixed range-manifest derivation scope.
+ */
+export function deriveCtfRangeManifestOutputData(
+  input: DeriveCtfRangeManifestOutputDataInput,
+): OutputData {
+  if (!Number.isSafeInteger(input.manifestIndex) || input.manifestIndex < 0) {
+    throw new CTSError('manifestIndex must be a non-negative safe integer');
+  }
+  assertCanonicalKeysetId(input.keysetId, 'manifest keyset id');
+  const amount = Amount.from(input.amount);
+  const value = amount.toBigInt();
+  if (value < 1n || value > MAX_U64 || (value & (value - 1n)) !== 0n) {
+    throw new CTSError('CTF range maximum must be in [1, u64::MAX]');
+  }
+  return OutputData.createSingleDeterministicData(
+    amount,
+    deriveScopedSeed(input.seed, input.rangeOperationId, 'manifest'),
+    input.manifestIndex,
+    input.keysetId,
+  );
 }
 
 /**
