@@ -204,10 +204,18 @@ class Mint {
    * @returns Signed outputs.
    */
   async swap(swapPayload: SwapRequest, customRequest?: RequestFn): Promise<SwapResponse> {
+    const requestBody: SwapRequest = {
+      ...swapPayload,
+      inputs: swapPayload.inputs.map((proof) =>
+        typeof proof.witness === 'object' && proof.witness !== null
+          ? { ...proof, witness: JSON.stringify(proof.witness) }
+          : proof,
+      ),
+    };
     const data = await this.requestWithAuth<SwapResponse>(
       'POST',
       '/v1/swap',
-      { requestBody: swapPayload },
+      { requestBody },
       customRequest,
     );
 
