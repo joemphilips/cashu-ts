@@ -229,10 +229,18 @@ class Mint {
       this._logger,
     );
     // `dleq` and `p2pk_e` are wallet-side data: keep them off the wire.
+    const requestBody: SwapRequest = {
+      ...swapPayload,
+      inputs: this.stripWalletFields(swapPayload.inputs).map((proof) =>
+        typeof proof.witness === 'object' && proof.witness !== null
+          ? { ...proof, witness: JSON.stringify(proof.witness) }
+          : proof,
+      ),
+    };
     const data = await this.requestWithAuth<SwapResponse>(
       'POST',
       '/v1/swap',
-      { requestBody: { ...swapPayload, inputs: this.stripWalletFields(swapPayload.inputs) } },
+      { requestBody },
       customRequest,
     );
 
