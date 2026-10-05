@@ -245,6 +245,7 @@ describe('KeyChain initialization', () => {
     server.use(
       http.get(mintUrl + '/v1/conditional_keysets', () =>
         HttpResponse.json({
+          next_cursor: null,
           keysets: [
             {
               id: CTF_KEYSET_ID,
@@ -676,10 +677,64 @@ describe('KeyChain initialization', () => {
     expect(cachedChain.getKeysets().length).toBe(1);
   });
 
+  test('finds an inactive conditional keyset on a later page', async () => {
+    const queries: string[] = [];
+    server.use(
+      http.get(mintUrl + '/v1/conditional_keysets', ({ request }) => {
+        const query = new URL(request.url).searchParams;
+        queries.push(query.toString());
+        expect(query.has('active')).toBe(false);
+        if (!query.has('cursor')) {
+          return HttpResponse.json({ keysets: [], next_cursor: 'opaque+?/=' });
+        }
+        expect(query.get('cursor')).toBe('opaque+?/=');
+        return HttpResponse.json({
+          next_cursor: null,
+          keysets: [
+            {
+              id: CTF_KEYSET_ID,
+              unit,
+              active: false,
+              input_fee_ppk: 0,
+              final_expiry: 1754296607,
+              condition_id: CTF_CONDITION_ID,
+              outcome_collection: 'YES',
+              outcome_collection_id: CTF_OUTCOME_COLLECTION_ID,
+              registered_at: 1_700_000_000,
+            },
+          ],
+        });
+      }),
+      http.get(mintUrl + '/v1/keys/' + CTF_KEYSET_ID, () =>
+        HttpResponse.json({ keysets: [{ ...DUMMY_TEST_KEYS, id: CTF_KEYSET_ID }] }),
+      ),
+    );
+    const chain = new KeyChain(mint, unit);
+    const keyset = await chain.loadConditionalKeyset(CTF_KEYSET_ID);
+    expect(keyset.isActive).toBe(false);
+    expect(keyset.verify()).toBe(true);
+    expect(queries).toHaveLength(2);
+  });
+
+  test('rejects a repeated cursor without caching an incomplete conditional registry', async () => {
+    let calls = 0;
+    server.use(
+      http.get(mintUrl + '/v1/conditional_keysets', () => {
+        calls += 1;
+        return HttpResponse.json({ keysets: [], next_cursor: 'same-page' });
+      }),
+    );
+    const chain = new KeyChain(mint, unit);
+    await expect(chain.loadConditionalKeyset(CTF_KEYSET_ID)).rejects.toThrow(/pagination/);
+    expect(calls).toBe(2);
+    expect(chain.hasConditionalKeyset(CTF_KEYSET_ID)).toBe(false);
+  });
+
   test('loads conditional keysets through the conditional registry', async () => {
     server.use(
       http.get(mintUrl + '/v1/conditional_keysets', () =>
         HttpResponse.json({
+          next_cursor: null,
           keysets: [
             {
               id: CTF_KEYSET_ID,
@@ -717,6 +772,7 @@ describe('KeyChain initialization', () => {
     server.use(
       http.get(mintUrl + '/v1/conditional_keysets', () =>
         HttpResponse.json({
+          next_cursor: null,
           keysets: [
             {
               id: CTF_KEYSET_ID,
@@ -748,6 +804,7 @@ describe('KeyChain initialization', () => {
     server.use(
       http.get(mintUrl + '/v1/conditional_keysets', () =>
         HttpResponse.json({
+          next_cursor: null,
           keysets: [
             {
               id: CTF_KEYSET_ID,

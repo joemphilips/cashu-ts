@@ -1377,8 +1377,9 @@ describe('Mint normalization', () => {
       if (options.endpoint === `${mintUrl}/v1/conditions/${conditionId}`) {
         throw new MintOperationError(13021, 'Condition not found');
       }
-      expect(options.endpoint).toBe(`${mintUrl}/v1/conditions`);
+      expect(options.endpoint).toBe(`${mintUrl}/v1/conditions?limit=100`);
       return {
+        next_cursor: null,
         conditions: [
           {
             condition_id: conditionId,
@@ -1431,10 +1432,11 @@ describe('Mint normalization', () => {
   it('lists conditional keysets with query parameters and normalizes metadata numbers', async () => {
     const requestSpy = vi.fn(async (options: ReqArgs) => {
       expect(options.endpoint).toBe(
-        `${mintUrl}/v1/conditional_keysets?since=1700000000&limit=5&active=true`,
+        `${mintUrl}/v1/conditional_keysets?since=1700000000&limit=5&active=true&cursor=current%2B%3F%2F%3D`,
       );
       expect(options.method).toBe('GET');
       return {
+        next_cursor: 'opaque-next-page',
         keysets: [
           {
             id: '01' + 'a'.repeat(64),
@@ -1456,11 +1458,47 @@ describe('Mint normalization', () => {
       since: 1_700_000_000,
       limit: 5,
       active: true,
+      cursor: 'current+?/=',
     });
 
     expect(response.keysets[0].input_fee_ppk).toBe(250);
     expect(response.keysets[0].final_expiry).toBe(1_754_296_607);
     expect(response.keysets[0].registered_at).toBe(1_700_000_001);
+    expect(response.next_cursor).toBe('opaque-next-page');
+  });
+
+  it('preserves opaque condition cursors and repeatable fixed filters', async () => {
+    const cursor = 'opaque+?/=';
+    const requestSpy = vi.fn(async (options: ReqArgs) => {
+      const url = new URL(options.endpoint);
+      expect(url.pathname).toBe('/v1/conditions');
+      expect(url.searchParams.get('cursor')).toBe(cursor);
+      expect(url.searchParams.get('since')).toBe('1700000000');
+      expect(url.searchParams.getAll('status')).toEqual(['pending', 'attested']);
+      return { conditions: [], next_cursor: null };
+    }) as RequestFn;
+    const mint = new Mint(mintUrl, { customRequest: requestSpy });
+    const result = await mint.getConditions({
+      cursor,
+      since: 1_700_000_000,
+      status: ['pending', 'attested'],
+    });
+    expect(result.next_cursor).toBeNull();
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['boolean', false],
+    ['object', {}],
+    ['oversized', 'c'.repeat(4097)],
+  ])('rejects a %s continuation cursor in both CTF listing responses', async (_, cursor) => {
+    const mint = new Mint(mintUrl, {
+      customRequest: makeRequest({ keysets: [], conditions: [], next_cursor: cursor }),
+    });
+    await expect(mint.getConditionalKeysets()).rejects.toThrow('invalid CTF continuation cursor');
+    await expect(mint.getConditions()).rejects.toThrow('invalid CTF continuation cursor');
   });
 
   it('wraps condition registration with requested outcome collections', async () => {

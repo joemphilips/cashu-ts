@@ -45,20 +45,24 @@ export interface GetConditionalKeysetsQuery {
   since?: number;
   limit?: number;
   active?: boolean;
+  cursor?: string;
 }
 
 export interface ConditionalKeysetsResponse {
   keysets: ConditionalKeysetInfo[];
+  next_cursor: string | null;
 }
 
 export interface GetConditionsQuery {
   since?: number;
   limit?: number;
   status?: string[];
+  cursor?: string;
 }
 
 export interface GetConditionsResponse {
   conditions: CtfConditionInfo[];
+  next_cursor: string | null;
 }
 
 export interface RegisterConditionRequest {

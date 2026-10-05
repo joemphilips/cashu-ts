@@ -60,6 +60,7 @@ import {
   verifiedPreimage,
 } from '../utils';
 
+import { findCtfListingItem } from './ctfListing';
 import type {
   PostRestoreResponse,
   SwapResponse,
@@ -1168,6 +1169,7 @@ class Mint {
     if (query.since !== undefined) params.set('since', String(query.since));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.active !== undefined) params.set('active', String(query.active));
+    if (query.cursor !== undefined) params.set('cursor', query.cursor);
     const suffix = params.toString();
     const path = suffix ? `/v1/conditional_keysets?${suffix}` : '/v1/conditional_keysets';
     const data = await this.requestWithAuth<ConditionalKeysetsResponse>(
@@ -1181,6 +1183,7 @@ class Mint {
       throw new CTSError('Invalid response from mint');
     }
     return {
+      next_cursor: this.readCtfNextCursor(data.next_cursor),
       keysets: data.keysets.map((keyset) => ({
         ...keyset,
         input_fee_ppk: normalizeSafeIntegerMetadata(
@@ -1210,6 +1213,7 @@ class Mint {
     if (query.since !== undefined) params.set('since', String(query.since));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     for (const status of query.status ?? []) params.append('status', status);
+    if (query.cursor !== undefined) params.set('cursor', query.cursor);
     const suffix = params.toString();
     const path = suffix ? `/v1/conditions?${suffix}` : '/v1/conditions';
     const data = await this.requestWithAuth<GetConditionsResponse>('GET', path, {}, customRequest);
@@ -1217,7 +1221,15 @@ class Mint {
       this._logger.error('Invalid response from mint...', { data, op: 'getConditions' });
       throw new CTSError('Invalid response from mint');
     }
-    return data;
+    return { ...data, next_cursor: this.readCtfNextCursor(data.next_cursor) };
+  }
+
+  private readCtfNextCursor(value: unknown): string | null {
+    if (value === null) return null;
+    if (typeof value !== 'string' || value.length === 0 || value.length > 4096) {
+      throw new CTSError('Mint returned an invalid CTF continuation cursor');
+    }
+    return value;
   }
 
   async registerCondition(
@@ -1297,15 +1309,11 @@ class Mint {
       );
     } catch (e) {
       if (!this.isConditionNotFound(e)) throw e;
-      const data = await this.requestWithAuth<
-        CtfConditionInfo[] | { conditions?: CtfConditionInfo[] }
-      >('GET', '/v1/conditions', {}, customRequest);
-      const conditions = Array.isArray(data)
-        ? data
-        : isObj(data) && Array.isArray(data.conditions)
-          ? data.conditions
-          : [];
-      const condition = conditions.find(
+      const condition = await findCtfListingItem(
+        async (cursor) => {
+          const page = await this.getConditions({ limit: 100, cursor }, customRequest);
+          return { items: page.conditions, next_cursor: page.next_cursor };
+        },
         (candidate) => candidate.condition_id?.toLowerCase() === normalizedConditionId,
       );
       if (!condition) throw e;

@@ -641,6 +641,7 @@ export declare class AuthManager implements AuthProvider {
 
     export declare interface ConditionalKeysetsResponse {
         keysets: ConditionalKeysetInfo[];
+        next_cursor: string | null;
     }
 
     export declare interface ConditionalSwapOptions {
@@ -1322,16 +1323,19 @@ export declare class AuthManager implements AuthProvider {
           since?: number;
           limit?: number;
           active?: boolean;
+          cursor?: string;
       }
 
       export declare interface GetConditionsQuery {
           since?: number;
           limit?: number;
           status?: string[];
+          cursor?: string;
       }
 
       export declare interface GetConditionsResponse {
           conditions: CtfConditionInfo[];
+          next_cursor: string | null;
       }
 
       /**
@@ -2947,6 +2951,7 @@ export declare class AuthManager implements AuthProvider {
            */
           getConditionalKeysets(query?: GetConditionalKeysetsQuery, customRequest?: RequestFn): Promise<ConditionalKeysetsResponse>;
           getConditions(query?: GetConditionsQuery, customRequest?: RequestFn): Promise<GetConditionsResponse>;
+          private readCtfNextCursor;
           registerCondition(payload: RegisterConditionRequest, customRequest?: RequestFn): Promise<RegisterConditionResponse>;
           /**
            * Fetches one conditional-token condition from a CTF-aware mint.

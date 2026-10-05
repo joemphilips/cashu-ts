@@ -1,5 +1,7 @@
 import { fail, failIf, failIfNullish, type Logger, NULL_LOGGER } from '../logger';
 import { Mint } from '../mint';
+import { findCtfListingItem } from '../mint/ctfListing';
+import { CTSError } from '../model/Errors';
 import type {
   ConditionalKeysetMetadata,
   MintKeyset,
@@ -412,8 +414,13 @@ export class KeyChain {
     }
 
     const promise = (async () => {
-      const registry = await this.mint.getConditionalKeysets();
-      const info = registry.keysets.find((keyset) => keyset.id === id);
+      const info = await findCtfListingItem(
+        async (cursor) => {
+          const page = await this.mint.getConditionalKeysets({ limit: 100, cursor });
+          return { items: page.keysets, next_cursor: page.next_cursor };
+        },
+        (keyset) => keyset.id === id,
+      );
       if (!info) {
         throw new CTSError(`Conditional keyset '${id}' not found`);
       }
