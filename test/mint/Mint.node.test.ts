@@ -1429,6 +1429,61 @@ describe('Mint normalization', () => {
     });
   });
 
+  it.each([true, false])(
+    'requests condition oracle signatures only when selected: %s',
+    async (includeOracleSigs) => {
+      const conditionId = 'c'.repeat(64);
+      const oracleSigs = [
+        { oracle_pubkey: '11'.repeat(32), oracle_sig: '22'.repeat(64), outcome: 'YES' },
+      ];
+      const requestSpy = vi.fn(async (options: ReqArgs) => {
+        expect(options.endpoint).toBe(
+          `${mintUrl}/v1/conditions/${conditionId}?include_oracle_sigs=${includeOracleSigs}`,
+        );
+        expect(options.method).toBe('GET');
+        return {
+          condition_id: conditionId,
+          keysets: { YES: 'keyset-yes', NO: 'keyset-no' },
+          attestation: { status: 'attested', winning_outcome: 'YES', oracle_sigs: oracleSigs },
+        };
+      }) as RequestFn;
+      const mint = new Mint(mintUrl);
+      const condition = await mint.getCtfCondition(conditionId, requestSpy, {
+        include_oracle_sigs: includeOracleSigs,
+      });
+      expect(condition.attestation?.oracle_sigs).toEqual(oracleSigs);
+      expect(requestSpy).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('retains the caller abort signal through direct condition lookup and listing fallback', async () => {
+    const conditionId = 'd'.repeat(64);
+    const signal = new AbortController().signal;
+    const requestSpy = vi.fn(async (options: ReqArgs & { signal?: AbortSignal }) => {
+      expect(options.signal).toBe(signal);
+      if (options.endpoint.includes(conditionId))
+        throw new MintOperationError(13021, 'Condition not found');
+      expect(options.endpoint).toBe(`${mintUrl}/v1/conditions?limit=100`);
+      return {
+        next_cursor: null,
+        conditions: [{ condition_id: conditionId, keysets: { YES: 'keyset-yes' } }],
+      };
+    }) as RequestFn;
+    const mint = new Mint(mintUrl);
+    await mint.getCtfCondition(conditionId, requestSpy, { include_oracle_sigs: true, signal });
+    expect(requestSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects malformed oracle-signature query options before network I/O', async () => {
+    const requestSpy = vi.fn() as RequestFn;
+    await expect(
+      new Mint(mintUrl).getCtfCondition('a'.repeat(64), requestSpy, {
+        include_oracle_sigs: 'true' as never,
+      }),
+    ).rejects.toThrow('include_oracle_sigs must be a boolean');
+    expect(requestSpy).not.toHaveBeenCalled();
+  });
+
   it('lists conditional keysets with query parameters and normalizes metadata numbers', async () => {
     const requestSpy = vi.fn(async (options: ReqArgs) => {
       expect(options.endpoint).toBe(

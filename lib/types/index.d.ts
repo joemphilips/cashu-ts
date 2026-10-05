@@ -943,6 +943,11 @@ export declare class AuthManager implements AuthProvider {
              status: string;
              winning_outcome?: string | null;
              attested_at?: number | null;
+             oracle_sigs?: Array<{
+                 oracle_pubkey: string;
+                 oracle_sig: string;
+                 outcome: string;
+             }>;
          };
      }
 
@@ -2959,7 +2964,10 @@ export declare class AuthManager implements AuthProvider {
            * The CTF extension keeps condition keyset metadata outside NUT-02 keyset discovery; callers use
            * this to resolve root outcome collection keysets before building complete-set split outputs.
            */
-          getCtfCondition(conditionId: string, customRequest?: RequestFn): Promise<CtfConditionInfo>;
+          getCtfCondition(conditionId: string, customRequest?: RequestFn, query?: {
+              include_oracle_sigs?: boolean;
+              signal?: AbortSignal;
+          }): Promise<CtfConditionInfo>;
           private normalizeCtfCondition;
           private getCtfConditionResponse;
           private isConditionNotFound;

@@ -1258,12 +1258,21 @@ class Mint {
    * The CTF extension keeps condition keyset metadata outside NUT-02 keyset discovery; callers use
    * this to resolve root outcome collection keysets before building complete-set split outputs.
    */
-  async getCtfCondition(conditionId: string, customRequest?: RequestFn): Promise<CtfConditionInfo> {
+  async getCtfCondition(
+    conditionId: string,
+    customRequest?: RequestFn,
+    query?: { include_oracle_sigs?: boolean; signal?: AbortSignal },
+  ): Promise<CtfConditionInfo> {
     if (!/^[0-9a-fA-F]{64}$/.test(conditionId)) {
       throw new CTSError('conditionId must be a 64-character hex string for CTF condition lookup');
     }
     const normalizedConditionId = conditionId.toLowerCase();
-    const data = await this.getCtfConditionResponse(normalizedConditionId, customRequest);
+    const requestInstance = customRequest ?? this._request;
+    const conditionRequest: RequestFn | undefined =
+      query?.signal === undefined
+        ? customRequest
+        : <T>(options: RequestOptions) => requestInstance<T>({ ...options, signal: query.signal });
+    const data = await this.getCtfConditionResponse(normalizedConditionId, conditionRequest, query);
     const dataObject = data as Record<string, unknown>;
     const condition = this.normalizeCtfCondition(
       isObj(dataObject.condition)
@@ -1299,11 +1308,20 @@ class Mint {
   private async getCtfConditionResponse(
     normalizedConditionId: string,
     customRequest?: RequestFn,
+    query?: { include_oracle_sigs?: boolean },
   ): Promise<CtfConditionInfo | { condition?: CtfConditionInfo }> {
+    const params = new URLSearchParams();
+    if (query?.include_oracle_sigs !== undefined) {
+      if (typeof query.include_oracle_sigs !== 'boolean') {
+        throw new CTSError('include_oracle_sigs must be a boolean');
+      }
+      params.set('include_oracle_sigs', String(query.include_oracle_sigs));
+    }
+    const suffix = params.size === 0 ? '' : `?${params.toString()}`;
     try {
       return await this.requestWithAuth<CtfConditionInfo | { condition?: CtfConditionInfo }>(
         'GET',
-        `/v1/conditions/${normalizedConditionId}`,
+        `/v1/conditions/${normalizedConditionId}${suffix}`,
         {},
         customRequest,
       );

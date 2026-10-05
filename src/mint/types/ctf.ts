@@ -26,6 +26,11 @@ export interface CtfConditionInfo {
     status: string;
     winning_outcome?: string | null;
     attested_at?: number | null;
+    oracle_sigs?: Array<{
+      oracle_pubkey: string;
+      oracle_sig: string;
+      outcome: string;
+    }>;
   };
 }
 
