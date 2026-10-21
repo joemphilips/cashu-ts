@@ -1,11 +1,12 @@
 import { sha256 } from '@noble/hashes/sha2.js';
-import { hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js';
+import { hexToBytes, utf8ToBytes, concatBytes } from '@noble/hashes/utils.js';
 
 import { deriveConditionalKeysetId } from '../crypto';
 import { hashToCurve } from '../crypto/core';
 import { CTSError } from '../model/Errors';
 import { type ConditionalKeysetMetadata, type MintKeyset, type MintKeys } from '../model/types';
-import { Bytes, isValidHex, deriveKeysetId, isBase64String, MAX_KEYSET_DENOMINATIONS } from '../utils';
+import { isValidHex, deriveKeysetId, isBase64String } from '../utils';
+import { assertKeysetKeyMap } from '../utils/keysetValidation';
 import { normalizeMintKeyset, normalizeMintKeys } from '../utils/normalizeNumbers';
 
 export class Keyset {
@@ -146,12 +147,7 @@ export class Keyset {
    */
   static verifyKeysetId(keys: MintKeys): boolean {
     try {
-      const count = keys.keys ? Object.keys(keys.keys).length : 0;
-      if (count === 0 || count > MAX_KEYSET_DENOMINATIONS) return false;
-
-      // A keyset id selects one key per amount, so a key repeated across denominations is malformed.
-      const distinct = new Set(Object.values(keys.keys).map((k) => k.toLowerCase()));
-      if (distinct.size !== count) return false;
+      assertKeysetKeyMap(keys.keys);
 
       const isDeprecatedBase64 = isBase64String(keys.id) && !isValidHex(keys.id);
       const versionByte = isValidHex(keys.id) ? hexToBytes(keys.id)[0] : 0;
@@ -244,7 +240,7 @@ function deriveOutcomeCollectionId(conditionId: string, outcomeCollection: strin
   }
   const tagHash = sha256(utf8ToBytes('Cashu_outcome_collection_id'));
   const commitment = sha256(
-    Bytes.concat(tagHash, tagHash, hexToBytes(conditionId), utf8ToBytes(outcomeCollection)),
+    concatBytes(tagHash, tagHash, hexToBytes(conditionId), utf8ToBytes(outcomeCollection)),
   );
   return hashToCurve(commitment).toHex(false).slice(2, 66);
 }

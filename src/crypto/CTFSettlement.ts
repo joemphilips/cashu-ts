@@ -1,6 +1,7 @@
 import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js';
 import { hexToBytes } from '@noble/curves/utils.js';
 import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, utf8ToBytes, concatBytes } from '@noble/hashes/utils.js';
 
 import type {
   CtfPoolEntry,
@@ -11,10 +12,9 @@ import { Amount } from '../model/Amount';
 import { CTSError } from '../model/Errors';
 import type { Proof, SerializedBlindedMessage } from '../model/types';
 import type { SwapRequest } from '../model/types/NUT03';
-import { Bytes } from '../utils';
 
-import { schnorrSignDigest } from './core';
-import { assertCanonicalKeysetId, pointFromHexAuto, pointToHex } from './curves';
+import { schnorrSignDigest, pointFromHex } from './core';
+import { assertCanonicalKeysetId } from './CTF';
 
 const CTF_RECEIVE_DOMAIN = 'Cashu/ctf/convert/recv';
 const CTF_MANIFEST_DOMAIN = 'Cashu/ctf/convert/manifest';
@@ -80,8 +80,8 @@ export interface CreateCtfPayToUnlockSecretInput {
 }
 
 function computeTaggedHash(tag: string, message: Uint8Array): string {
-  const tagHash = sha256(Bytes.fromString(tag));
-  return Bytes.toHex(sha256(Bytes.concat(tagHash, tagHash, message)));
+  const tagHash = sha256(utf8ToBytes(tag));
+  return bytesToHex(sha256(concatBytes(tagHash, tagHash, message)));
 }
 
 /**
@@ -93,8 +93,8 @@ export function computeCtfReceiveCommitment(outputs: SerializedBlindedMessage[])
   }
   const count = new Uint8Array(4);
   new DataView(count.buffer).setUint32(0, outputs.length, true);
-  const entries = outputs.map((entry) => Bytes.fromString(canonicalOutput(entry)));
-  return computeTaggedHash(CTF_RECEIVE_DOMAIN, Bytes.concat(count, ...entries));
+  const entries = outputs.map((entry) => utf8ToBytes(canonicalOutput(entry)));
+  return computeTaggedHash(CTF_RECEIVE_DOMAIN, concatBytes(count, ...entries));
 }
 
 /**
@@ -102,8 +102,8 @@ export function computeCtfReceiveCommitment(outputs: SerializedBlindedMessage[])
  */
 export function computeCtfManifestCommitment(manifest: CtfPoolEntry[]): string {
   validateCtfPoolManifest(manifest);
-  const entries = manifest.map((entry) => Bytes.fromString(canonicalPoolEntry(entry)));
-  return computeTaggedHash(CTF_MANIFEST_DOMAIN, Bytes.concat(...entries));
+  const entries = manifest.map((entry) => utf8ToBytes(canonicalPoolEntry(entry)));
+  return computeTaggedHash(CTF_MANIFEST_DOMAIN, concatBytes(...entries));
 }
 
 /**
@@ -121,7 +121,7 @@ export function createCtfSelectionBitmap(entryCount: number, selectedIndices: nu
     seen.add(index);
     bytes[index >> 3] |= 1 << (index & 7);
   }
-  return Bytes.toHex(bytes);
+  return bytesToHex(bytes);
 }
 
 /**
@@ -136,7 +136,7 @@ export function parseCtfSelectionBitmap(value: string, entryCount: number): numb
   if (!/^[0-9a-f]*$/.test(value)) {
     throw new CTSError('CTF selection must be lowercase hexadecimal');
   }
-  const bytes = Bytes.fromHex(value);
+  const bytes = hexToBytes(value);
   validateTrailingBits(bytes, entryCount);
   return selectedIndices(bytes, entryCount);
 }
@@ -207,7 +207,7 @@ export function signCtfSettlementRequest(
 ): CtfSettlementRequest {
   const privateKeyBytes = parsePrivateKey(privateKey, 'coordinator');
   const coordinatorPublicKey = requireRequestCoordinatorPublicKey(request);
-  const derivedPublicKey = Bytes.toHex(secp256k1.getPublicKey(privateKeyBytes, true).slice(1));
+  const derivedPublicKey = bytesToHex(secp256k1.getPublicKey(privateKeyBytes, true).slice(1));
   if (derivedPublicKey !== coordinatorPublicKey) {
     throw new CTSError('coordinator private key does not match PAY_TO_UNLOCK condition');
   }
@@ -245,7 +245,7 @@ function canonicalRequestBytes(request: CtfSettlementRequest): Uint8Array {
     'parent_collection_id',
   );
   requireCanonicalParticipantOrder(request.participants);
-  return Bytes.concat(
+  return concatBytes(
     hexToBytes(conditionId),
     hexToBytes(parent),
     ...request.participants.map(canonicalParticipantBytes),
@@ -336,7 +336,7 @@ export function computePayToUnlockRefundDigest(request: SwapRequest): string {
   const inputs = request.inputs.map((proof) => canonicalProofValue(proof, false));
   const outputs = request.outputs.map(canonicalOutputValue);
   const canonical = canonicalJson({ inputs, outputs });
-  return computeTaggedHash(PAY_TO_UNLOCK_REFUND_DOMAIN, Bytes.fromString(canonical));
+  return computeTaggedHash(PAY_TO_UNLOCK_REFUND_DOMAIN, utf8ToBytes(canonical));
 }
 
 /**
@@ -344,7 +344,7 @@ export function computePayToUnlockRefundDigest(request: SwapRequest): string {
  */
 export function signPayToUnlockRefund(request: SwapRequest, privateKey: string): SwapRequest {
   const privateKeyBytes = parsePrivateKey(privateKey, 'refund');
-  const refund = Bytes.toHex(secp256k1.getPublicKey(privateKeyBytes, true).slice(1));
+  const refund = bytesToHex(secp256k1.getPublicKey(privateKeyBytes, true).slice(1));
   const digest = computePayToUnlockRefundDigest(request);
   const inputs = request.inputs.map((proof) => {
     const condition = parseCtfPayToUnlockCondition(proof.secret);
@@ -405,12 +405,9 @@ function canonicalParticipantBytes(participant: CtfSettlementParticipant): Uint8
       index: entry.index,
       role: entry.role,
     }));
-    return Bytes.concat(
-      Bytes.fromString(canonicalJson(value)),
-      Bytes.fromHex(participant.pool_selection),
-    );
+    return concatBytes(utf8ToBytes(canonicalJson(value)), hexToBytes(participant.pool_selection));
   }
-  return Bytes.fromString(canonicalJson(value));
+  return utf8ToBytes(canonicalJson(value));
 }
 
 function canonicalProofValue(proof: Proof, includeWitness: boolean): CanonicalValue {
@@ -491,9 +488,9 @@ function validateBlindedMessage(output: SerializedBlindedMessage): void {
     throw new CTSError('blinded message must use canonical lowercase hex');
   }
   try {
-    const point = pointFromHexAuto(output.B_);
-    if (pointToHex(point) !== output.B_) {
-      throw new Error('unsupported or noncanonical point');
+    const point = pointFromHex(output.B_);
+    if (point.toHex(true) !== output.B_) {
+      throw new CTSError('unsupported or noncanonical point');
     }
   } catch (e) {
     throw new CTSError('blinded message contains an invalid point', { cause: e });

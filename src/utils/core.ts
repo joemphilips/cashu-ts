@@ -30,6 +30,7 @@ import {
 } from './base64';
 import { decodeCBOR, encodeCBOR } from './cbor';
 import { JSONInt } from './JSONInt';
+import { assertKeysetDenominationLengths, assertKeysetUnit } from './keysetValidation';
 import { MAX_BOLT11_HRP_LENGTH, MAX_SPLIT_OUTPUTS } from './limits';
 
 /**
@@ -501,8 +502,6 @@ export type DeriveKeysetIdOptions = {
   isDeprecatedBase64?: boolean;
 };
 
-const KEYSET_UNIT_RE = /^[a-z0-9_-]+$/;
-
 /**
  * Highest keyset id version byte this build can spend: 0x01, the v2 keysets.
  *
@@ -556,12 +555,7 @@ export function assertSpendableVersion(keysetId: string, logger?: Logger): void 
  * @throws If keyset versionByte is not valid, or a denomination key is over 20 digits.
  */
 export function deriveKeysetId(keys: Keys, options?: DeriveKeysetIdOptions): string {
-  // A u64 denomination is at most 20 digits; bound every key before any amount is parsed.
-  for (const amount of Object.keys(keys)) {
-    if (amount.length > 20) {
-      throw new CTSError('Invalid keyset denomination: exceeds 20 digits');
-    }
-  }
+  assertKeysetDenominationLengths(keys);
   const unit = options?.unit ?? 'sat'; // default: sat
   const expiry = options?.expiry;
   const versionByte = options?.versionByte ?? 1; // default: 1
@@ -590,14 +584,7 @@ export function deriveKeysetId(keys: Keys, options?: DeriveKeysetIdOptions): str
       return '00' + hashHex;
     }
     case 1: {
-      if (!unit) {
-        throw new CTSError('Cannot compute keyset ID version 01: unit is required.');
-      }
-      // Per NUT-02 V2 the unit is restricted to [a-z0-9_-] (case folded here), so it cannot
-      // collide with the metadata fields that follow it in the preimage.
-      if (!KEYSET_UNIT_RE.test(unit.toLowerCase())) {
-        throw new CTSError(`Invalid keyset unit: ${unit}`);
-      }
+      assertKeysetUnit(unit);
       const sortedEntries = Object.entries(keys).sort(([amountA], [amountB]) =>
         Amount.from(amountA).compareTo(amountB),
       );

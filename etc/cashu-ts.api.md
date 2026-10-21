@@ -135,6 +135,9 @@ export class AmountWithUnitError extends CTSError {
 }
 
 // @public
+export function assertCanonicalKeysetId(keysetId: string, field?: string): string;
+
+// @public
 export function assertSecretKind(allowed: SecretKind | SecretKind[], secret: Secret | string): Secret;
 
 // @public
@@ -217,6 +220,9 @@ export type BlindSignature = {
 };
 
 // @public
+export function buildCtfRangeRecoveryQuery(entries: CtfRangeManifestEntryMaterial[], selection?: string): CtfRangeRecoveryQuery;
+
+// @public
 export class CallerAbortError extends NetworkError {
     constructor(message: string);
 }
@@ -244,11 +250,36 @@ export type CheckStateResponse = {
     states: ProofState[];
 };
 
+// @public
+export function classifyCtfSettlementRecovery(input: {
+    inputStates: ProofState[];
+    expectedInputYs: string[];
+    outputRecovery: {
+        query: CtfRangeRecoveryQuery;
+        restoredOutputBs: string[];
+        queryCompleted: boolean;
+    };
+    now: number;
+    expiry: number;
+}): CtfSettlementRecoveryClassification;
+
 // @public (undocumented)
 export type CompleteMeltOptions = {
     preferAsync?: boolean;
     extraPayload?: Record<string, unknown>;
 };
+
+// @public
+export function computeCtfManifestCommitment(manifest: CtfPoolEntry[]): string;
+
+// @public
+export function computeCtfReceiveCommitment(outputs: SerializedBlindedMessage[]): string;
+
+// @public
+export function computeCtfSettlementCoordinatorDigest(request: CtfSettlementRequest): string;
+
+// @public
+export function computeCtfSettlementRequestDigest(request: CtfSettlementRequest): string;
 
 // @public
 export function computeMessageDigest(message: string): Uint8Array;
@@ -258,6 +289,69 @@ export function computeMessageDigest(message: string, asHex: false): Uint8Array;
 
 // @public (undocumented)
 export function computeMessageDigest(message: string, asHex: true): string;
+
+// @public
+export function computePayToUnlockRefundDigest(request: SwapRequest): string;
+
+// @public (undocumented)
+export interface ConditionalKeysetInfo {
+    // (undocumented)
+    active: boolean;
+    // (undocumented)
+    condition_id: string;
+    // (undocumented)
+    final_expiry?: number;
+    // (undocumented)
+    id: string;
+    // (undocumented)
+    input_fee_ppk?: number;
+    // (undocumented)
+    outcome_collection: string;
+    // (undocumented)
+    outcome_collection_id: string;
+    // (undocumented)
+    registered_at?: number;
+    // (undocumented)
+    unit: string;
+}
+
+// @public (undocumented)
+export interface ConditionalKeysetMetadata {
+    conditionId: string;
+    outcomeCollection: string;
+    outcomeCollectionId: string;
+    registeredAt?: number;
+}
+
+// @public (undocumented)
+export interface ConditionalKeysetsResponse {
+    // (undocumented)
+    keysets: ConditionalKeysetInfo[];
+    // (undocumented)
+    next_cursor: string | null;
+}
+
+// @public (undocumented)
+export interface ConditionalSwapOptions {
+    // (undocumented)
+    inputs: ProofLike[];
+    keysetId?: string;
+    // (undocumented)
+    outputs: ConditionalSwapOutputGroup[];
+}
+
+// @public (undocumented)
+export type ConditionalSwapOutputGroup = GeneratedConditionalSwapOutputGroup | ExactConditionalSwapOutputGroup;
+
+// @public (undocumented)
+export interface ConditionalSwapPreview {
+    // (undocumented)
+    inputs: Proof[];
+    // (undocumented)
+    keysetId: string;
+    // (undocumented)
+    outputDataByLabel: Record<string, OutputData[]>;
+}
 
 // @public
 export class ConsoleLogger implements Logger {
@@ -312,6 +406,93 @@ export function createAuthWallet(mintUrl: string, options?: {
 export function createBlindSignature(B_: WeierstrassPoint<bigint>, privateKey: Uint8Array, id: string): BlindSignature;
 
 // @public
+export function createCtfAuthorizationOutputs(input: CreateCtfAuthorizationOutputsInput): OutputData[];
+
+// @public (undocumented)
+export interface CreateCtfAuthorizationOutputsInput {
+    // (undocumented)
+    amounts: AmountLike[];
+    // (undocumented)
+    commitment: string;
+    // (undocumented)
+    coordinatorPublicKey: string;
+    // (undocumented)
+    expiry: string | bigint | number;
+    // (undocumented)
+    expiryContext: {
+        now: string | bigint | number;
+        maxExpirySeconds: string | bigint | number;
+        condition: Pick<CtfConditionInfo, 'condition_id' | 'keysets' | 'partitions'>;
+        conditionalKeysets: Array<Pick<ConditionalKeysetInfo, 'id' | 'condition_id' | 'final_expiry'>>;
+    };
+    // (undocumented)
+    offerKeysetId: string;
+    // (undocumented)
+    operationId: string;
+    // (undocumented)
+    poolPolicy?: {
+        rateN: string | bigint | number;
+        rateD: string | bigint | number;
+        minReceive: string | bigint | number;
+        maxDebit: string | bigint | number;
+    };
+    // (undocumented)
+    refund: string;
+    // (undocumented)
+    seed: Uint8Array;
+}
+
+// @public
+export function createCtfPayToUnlockSecret(input: CreateCtfPayToUnlockSecretInput): string;
+
+// @public (undocumented)
+export interface CreateCtfPayToUnlockSecretInput {
+    // (undocumented)
+    coordinatorPublicKey?: string;
+    // (undocumented)
+    data: string;
+    // (undocumented)
+    expiry: string | bigint | number;
+    // (undocumented)
+    nonce: string;
+    // (undocumented)
+    offerKeyset: string;
+    // (undocumented)
+    poolPolicy?: {
+        rateN: string | bigint | number;
+        rateD: string | bigint | number;
+        minReceive: string | bigint | number;
+        maxDebit: string | bigint | number;
+    };
+    // (undocumented)
+    refund: string;
+}
+
+// @public
+export function createCtfRangeManifest(input: CreateCtfRangeManifestInput): CtfRangeManifestMaterial;
+
+// @public (undocumented)
+export interface CreateCtfRangeManifestInput {
+    // (undocumented)
+    maxChange: AmountLike;
+    // (undocumented)
+    maxEntries: number;
+    // (undocumented)
+    maxReceive: AmountLike;
+    // (undocumented)
+    offerKeyset: CtfRangeKeyset;
+    // (undocumented)
+    operationId: string;
+    // (undocumented)
+    receiveKeyset: CtfRangeKeyset;
+    // (undocumented)
+    seed: Uint8Array;
+}
+
+// @public
+export function createCtfSelectionBitmap(entryCount: number, selectedIndices: number[]): string;
+
+// @public
 export const createDLEQProof: (B_: WeierstrassPoint<bigint>, a: Uint8Array) => DLEQ;
 
 // @public
@@ -346,6 +527,212 @@ export function createRandomSecretKey(): Uint8Array<ArrayBufferLike>;
 // @public
 export function createSecret(kind: SecretKind, data: string, tags?: string[][]): string;
 
+// @public (undocumented)
+export interface CtfConditionInfo {
+    // (undocumented)
+    announcements?: string[];
+    // (undocumented)
+    attestation?: {
+        status: string;
+        winning_outcome?: string | null;
+        attested_at?: number | null;
+        oracle_sigs?: Array<{
+            oracle_pubkey: string;
+            oracle_sig: string;
+            outcome: string;
+        }>;
+    };
+    // (undocumented)
+    condition_id: string;
+    // (undocumented)
+    condition_type?: string;
+    // (undocumented)
+    hi_bound?: number;
+    // (undocumented)
+    keysets: Record<string, string>;
+    // (undocumented)
+    lo_bound?: number;
+    // (undocumented)
+    partitions?: Array<{
+        partition?: string[];
+        collateral?: string;
+        parent_collection_id?: string;
+        keysets?: Record<string, string>;
+        registered_at?: number;
+    }>;
+    // (undocumented)
+    precision?: number;
+    // (undocumented)
+    registered_at?: number;
+    // (undocumented)
+    tags?: string[][];
+    // (undocumented)
+    threshold?: number;
+}
+
+// @public (undocumented)
+export interface CtfConvertRequest {
+    // (undocumented)
+    condition_id: string;
+    // (undocumented)
+    inputs: Record<string, Proof[]>;
+    // (undocumented)
+    outputs: Record<string, SerializedBlindedMessage[]>;
+    // (undocumented)
+    parent_collection_id?: string;
+}
+
+// @public (undocumented)
+export interface CtfConvertResponse {
+    // (undocumented)
+    signatures: Record<string, SerializedBlindedSignature[]>;
+}
+
+// @public (undocumented)
+export interface CtfPayToUnlockCondition {
+    // (undocumented)
+    coordinatorPublicKey?: string;
+    // (undocumented)
+    data: string;
+    // (undocumented)
+    expiry: bigint;
+    // (undocumented)
+    mode: CtfPayToUnlockMode;
+    // (undocumented)
+    nonce: string;
+    // (undocumented)
+    offerKeyset: string;
+    // (undocumented)
+    refund: string;
+}
+
+// @public (undocumented)
+export type CtfPayToUnlockMode = {
+    kind: 'standard';
+} | {
+    kind: 'pool';
+    policy: CtfPoolPolicy;
+};
+
+// @public
+export interface CtfPoolEntry {
+    // (undocumented)
+    amount: string;
+    // (undocumented)
+    B_: string;
+    // (undocumented)
+    id: string;
+    // (undocumented)
+    index: string;
+    // (undocumented)
+    role: CtfPoolEntryRole;
+}
+
+// @public (undocumented)
+export type CtfPoolEntryRole = 'receive' | 'change';
+
+// @public (undocumented)
+export interface CtfPoolPolicy {
+    // (undocumented)
+    maxDebit: bigint;
+    // (undocumented)
+    minReceive: bigint;
+    // (undocumented)
+    rateD: bigint;
+    // (undocumented)
+    rateN: bigint;
+}
+
+// @public (undocumented)
+export interface CtfRangeKeyset extends HasKeysetKeys {
+    // (undocumented)
+    active: boolean;
+}
+
+// @public (undocumented)
+export interface CtfRangeManifestEntryMaterial {
+    // (undocumented)
+    entry: CtfPoolEntry;
+    // (undocumented)
+    outputData: OutputData;
+}
+
+// @public (undocumented)
+export interface CtfRangeManifestMaterial {
+    // (undocumented)
+    commitment: string;
+    // (undocumented)
+    entries: CtfRangeManifestEntryMaterial[];
+    // (undocumented)
+    serialized: CtfPoolEntry[];
+}
+
+// @public (undocumented)
+export type CtfRangeRecoveryQuery = {
+    mode: 'known';
+    outputs: SerializedBlindedMessage[];
+    expectedOutputBs: string[];
+} | {
+    mode: 'unknown';
+    outputs: SerializedBlindedMessage[];
+    manifestBs: string[];
+};
+
+// @public (undocumented)
+export interface CtfRangeRefundKey {
+    // (undocumented)
+    privateKey: string;
+    // (undocumented)
+    publicKey: string;
+}
+
+// @public (undocumented)
+export interface CtfRangeSelection {
+    // (undocumented)
+    changeTotal: Amount;
+    // (undocumented)
+    outputs: SerializedBlindedMessage[];
+    // (undocumented)
+    receiveTotal: Amount;
+    // (undocumented)
+    selectedIndices: number[];
+    // (undocumented)
+    selection: string;
+}
+
+// @public (undocumented)
+export interface CtfSettlementParticipant {
+    // (undocumented)
+    inputs: Proof[];
+    // (undocumented)
+    outputs: SerializedBlindedMessage[];
+    // (undocumented)
+    pool_manifest?: CtfPoolEntry[];
+    // (undocumented)
+    pool_selection?: string;
+}
+
+// @public (undocumented)
+export type CtfSettlementRecoveryClassification = 'confirmed' | 'waiting' | 'refundable' | 'reconciling';
+
+// @public
+export interface CtfSettlementRequest {
+    // (undocumented)
+    condition_id: string;
+    // (undocumented)
+    coordinator_sig?: string;
+    // (undocumented)
+    parent_collection_id?: string;
+    // (undocumented)
+    participants: CtfSettlementParticipant[];
+}
+
+// @public (undocumented)
+export interface CtfSettlementResponse {
+    // (undocumented)
+    signatures: SerializedBlindedSignature[][];
+}
+
 // @public
 export class CTSError extends Error {
     constructor(message: string, options?: {
@@ -360,6 +747,48 @@ export function decodePaymentRequest(paymentRequest: string): PaymentRequest_2;
 
 // @public @deprecated (undocumented)
 export const deriveBlindingFactor: (seed: Uint8Array, keysetId: string, counter: number) => Uint8Array;
+
+// @public
+export function deriveConditionalKeysetId(input: DeriveConditionalKeysetIdInput): string;
+
+// @public (undocumented)
+export interface DeriveConditionalKeysetIdInput {
+    // (undocumented)
+    conditionId: string;
+    // (undocumented)
+    final_expiry?: number;
+    // (undocumented)
+    input_fee_ppk?: number;
+    // (undocumented)
+    keys: Keys;
+    // (undocumented)
+    outcomeCollectionId: string;
+    // (undocumented)
+    unit: string;
+}
+
+// @public
+export function deriveCtfRangeManifestOutputData(input: DeriveCtfRangeManifestOutputDataInput): OutputData;
+
+// @public (undocumented)
+export interface DeriveCtfRangeManifestOutputDataInput {
+    // (undocumented)
+    amount: AmountLike;
+    // (undocumented)
+    keysetId: string;
+    // (undocumented)
+    manifestIndex: number;
+    // (undocumented)
+    rangeOperationId: string;
+    // (undocumented)
+    seed: Uint8Array;
+}
+
+// @public
+export function deriveCtfRangeRecoverySelection(entries: CtfRangeManifestEntryMaterial[], restoredOutputs: SerializedBlindedMessage[]): string;
+
+// @public
+export function deriveCtfRangeRefundKey(seed: Uint8Array, operationId: string): CtfRangeRefundKey;
 
 // @public
 export function deriveKeysetId(keys: Keys, options?: DeriveKeysetIdOptions): string;
@@ -426,8 +855,64 @@ export type DLEQ = {
 // @public (undocumented)
 export type Enumerate<N extends number, Acc extends number[] = []> = Acc['length'] extends N ? Acc[number] : Enumerate<N, [...Acc, Acc['length']]>;
 
+// @public (undocumented)
+export interface ExactConditionalSwapOutputGroup {
+    // (undocumented)
+    data: OutputData[];
+    // (undocumented)
+    kind: 'custom';
+    // (undocumented)
+    label: string;
+}
+
 // @public
 export function findSigningKey(pubkey: string, privkeys: string | string[]): string;
+
+// @public (undocumented)
+export interface GeneratedConditionalSwapOutputGroup {
+    // (undocumented)
+    amount: AmountLike;
+    // (undocumented)
+    customSplit?: AmountLike[];
+    // (undocumented)
+    kind: 'random' | 'p2pk';
+    // (undocumented)
+    label: string;
+    // (undocumented)
+    p2pk?: P2PKOptions;
+}
+
+// @public (undocumented)
+export interface GetConditionalKeysetsQuery {
+    // (undocumented)
+    active?: boolean;
+    // (undocumented)
+    cursor?: string;
+    // (undocumented)
+    limit?: number;
+    // (undocumented)
+    since?: number;
+}
+
+// @public (undocumented)
+export interface GetConditionsQuery {
+    // (undocumented)
+    cursor?: string;
+    // (undocumented)
+    limit?: number;
+    // (undocumented)
+    since?: number;
+    // (undocumented)
+    status?: string[];
+}
+
+// @public (undocumented)
+export interface GetConditionsResponse {
+    // (undocumented)
+    conditions: CtfConditionInfo[];
+    // (undocumented)
+    next_cursor: string | null;
+}
 
 // @public
 export function getDataField(secret: Secret | string): string;
@@ -439,9 +924,11 @@ export function getDecodedToken(tokenString: string, keysetIds: readonly string[
 export function getDecodedTokenBinary(bytes: Uint8Array, keysetIds?: readonly string[]): Token;
 
 // @public
-export function getEncodedToken(token: Token, opts?: {
+function getEncodedToken(token: Token, opts?: {
     removeDleq?: boolean;
 }): string;
+export { getEncodedToken }
+export { getEncodedToken as getEncodedTokenV4 }
 
 // @public
 export function getEncodedTokenBinary(token: Token): Uint8Array;
@@ -673,13 +1160,22 @@ export class KeyChain {
     getAllKeys(): MintKeys[];
     getAllKeysetIds(): string[];
     getCheapestKeyset(): Keyset;
+    // (undocumented)
+    getConditionalKeyset(id: string): Keyset;
     getKeyset(id?: string): Keyset;
     getKeysets(): Keyset[];
+    // (undocumented)
+    hasConditionalKeyset(id: string): boolean;
     hasKeyset(id?: string): boolean;
     init(forceRefresh?: boolean): Promise<void>;
     isUnitKeyset(id?: string): boolean;
+    // (undocumented)
+    loadConditionalKeyset(id: string): Promise<Keyset>;
     loadFromCache(cache: KeyChainCache): void;
     static mintToCacheDTO(mintUrl: string, allKeysets: MintKeyset[], allKeys: MintKeys[]): KeyChainCache;
+    registerConditionalKeyset(meta: MintKeyset & {
+        conditional: ConditionalKeysetMetadata;
+    }, keys?: MintKeys): Keyset;
 }
 
 // @public
@@ -696,7 +1192,9 @@ export type Keys = {
 
 // @public (undocumented)
 export class Keyset {
-    constructor(id: string, unit: string, active: boolean, input_fee_ppk?: number, final_expiry?: number);
+    constructor(id: string, unit: string, active: boolean, input_fee_ppk?: number, final_expiry?: number, conditional?: ConditionalKeysetMetadata);
+    // (undocumented)
+    get conditional(): ConditionalKeysetMetadata | undefined;
     // (undocumented)
     get expiry(): number | undefined;
     // (undocumented)
@@ -710,6 +1208,8 @@ export class Keyset {
     // (undocumented)
     get isActive(): boolean;
     // (undocumented)
+    get isConditional(): boolean;
+    // (undocumented)
     get keys(): Record<number, string>;
     set keys(keys: Record<number, string>);
     toMintKeys(): MintKeys | null;
@@ -717,6 +1217,7 @@ export class Keyset {
     // (undocumented)
     get unit(): string;
     verify(): boolean;
+    static verifyConditionalKeysetId(keys: MintKeys, conditional: ConditionalKeysetMetadata): boolean;
     static verifyKeysetId(keys: MintKeys): boolean;
     get version(): number;
 }
@@ -882,11 +1383,13 @@ export type MeltQuoteBolt11Request = MeltQuoteBaseRequest & {
 };
 
 // @public
-export type MeltQuoteBolt11Response = MeltQuoteBaseResponse & {
+type MeltQuoteBolt11Response = MeltQuoteBaseResponse & {
     request: string;
     fee_reserve: Amount;
     payment_preimage: string | null;
 };
+export { MeltQuoteBolt11Response }
+export { MeltQuoteBolt11Response as MeltQuoteResponse }
 
 // @public
 export type MeltQuoteBolt12Request = MeltQuoteBaseRequest & {
@@ -939,7 +1442,7 @@ export type MeltRequest = {
 } & Record<string, unknown>;
 
 // @public
-export class Mint {
+class Mint {
     constructor(mintUrl: string, options?: {
         customRequest?: RequestFn;
         authProvider?: AuthProvider;
@@ -981,7 +1484,16 @@ export class Mint {
     createMintQuoteBolt11(mintQuotePayload: MintQuoteBolt11Request, customRequest?: RequestFn): Promise<MintQuoteBolt11Response>;
     createMintQuoteBolt12(mintQuotePayload: MintQuoteBolt12Request, customRequest?: RequestFn): Promise<MintQuoteBolt12Response>;
     createMintQuoteOnchain(mintQuotePayload: MintQuoteOnchainRequest, customRequest?: RequestFn): Promise<MintQuoteOnchainResponse>;
+    ctfConvert(convertPayload: CtfConvertRequest, customRequest?: RequestFn): Promise<CtfConvertResponse>;
+    ctfSettle(payload: CtfSettlementRequest, customRequest?: RequestFn): Promise<CtfSettlementResponse>;
     disconnectWebSocket(): void;
+    getConditionalKeysets(query?: GetConditionalKeysetsQuery, customRequest?: RequestFn): Promise<ConditionalKeysetsResponse>;
+    // (undocumented)
+    getConditions(query?: GetConditionsQuery, customRequest?: RequestFn): Promise<GetConditionsResponse>;
+    getCtfCondition(conditionId: string, customRequest?: RequestFn, query?: {
+        include_oracle_sigs?: boolean;
+        signal?: AbortSignal;
+    }): Promise<CtfConditionInfo>;
     getInfo(customRequest?: RequestFn): Promise<GetInfoResponse>;
     getKeys(keysetId?: string, mintUrl?: string, customRequest?: RequestFn): Promise<GetKeysResponse>;
     getKeySets(customRequest?: RequestFn): Promise<GetKeysetsResponse>;
@@ -1016,12 +1528,17 @@ export class Mint {
     // (undocumented)
     get mintUrl(): string;
     oidcAuth(opts?: OIDCAuthOptions): Promise<OIDCAuth>;
+    redeemOutcome(redeemPayload: RedeemOutcomeRequest, customRequest?: RequestFn): Promise<RedeemOutcomeResponse>;
+    // (undocumented)
+    registerCondition(payload: RegisterConditionRequest, customRequest?: RequestFn): Promise<RegisterConditionResponse>;
     restore(restorePayload: PostRestorePayload, customRequest?: RequestFn): Promise<PostRestoreResponse>;
     setMintInfo(mintInfo: MintInfo | GetInfoResponse): void;
     swap(swapPayload: SwapRequest, customRequest?: RequestFn): Promise<SwapResponse>;
     // (undocumented)
     get webSocketConnection(): WSConnection | undefined;
 }
+export { Mint as CashuMint }
+export { Mint }
 
 // @public
 export class MintBuilder<M extends MintMethod, HasPrivKey extends boolean = M extends 'bolt12' | 'onchain' ? false : true> {
@@ -1185,6 +1702,7 @@ export type MintKeys = {
     input_fee_ppk?: number;
     final_expiry?: number;
     keys: Keys;
+    conditional?: ConditionalKeysetMetadata;
 };
 
 // @public
@@ -1194,6 +1712,7 @@ export type MintKeyset = {
     active: boolean;
     input_fee_ppk?: number;
     final_expiry?: number;
+    conditional?: ConditionalKeysetMetadata;
 };
 
 // @public (undocumented)
@@ -1251,11 +1770,14 @@ export type MintQuoteBolt11Request = MintQuoteBaseRequest & {
 };
 
 // @public
-export type MintQuoteBolt11Response = MintQuoteBaseResponse & {
+type MintQuoteBolt11Response = MintQuoteBaseResponse & {
     amount: Amount;
     state: MintQuoteState;
     expiry: number | null;
 };
+export { MintQuoteBolt11Response }
+export { MintQuoteBolt11Response as MintQuoteResponse }
+export { MintQuoteBolt11Response as PartialMintQuoteResponse }
 
 // @public
 export type MintQuoteBolt12Request = MintQuoteBaseRequest & {
@@ -1446,6 +1968,7 @@ export class OutputData implements OutputDataLike {
     static createP2PKData(p2pk: P2PKOptions, amount: AmountLike, keyset: HasKeysetKeys, customSplit?: AmountLike[]): OutputData[];
     // (undocumented)
     static createRandomData(amount: AmountLike, keyset: HasKeysetKeys, customSplit?: AmountLike[]): OutputData[];
+    static createSingleData(amount: AmountLike, keysetId: string, secret: string | Uint8Array, blindingFactor?: bigint): OutputData;
     // (undocumented)
     static createSingleDeterministicData(amount: AmountLike, seed: Uint8Array, counter: number, keysetId: string): OutputData;
     // (undocumented)
@@ -1559,6 +2082,12 @@ export interface P2PKVerificationResult {
 export type P2PKWitness = {
     signatures?: string[];
 };
+
+// @public
+export function parseCtfPayToUnlockCondition(secret: string): CtfPayToUnlockCondition;
+
+// @public
+export function parseCtfSelectionBitmap(value: string, entryCount: number): number[];
 
 // @public
 export function parseHTLCSecret(secret: string | Secret): Secret;
@@ -1755,6 +2284,65 @@ export type ReceiveConfig = {
     onCountersReserved?: OnCountersReserved;
 };
 
+// @public
+export function recoverCtfRangeProofs(entries: CtfRangeManifestEntryMaterial[], restoredOutputs: SerializedBlindedMessage[], signatures: SerializedBlindedSignature[], resolveKeyset: (id: string) => HasKeysetKeys | undefined): Proof[];
+
+// @public (undocumented)
+export interface RedeemOutcomeProofsOptions {
+    inputs: ProofLike[];
+    outputs: OutputDataLike[];
+}
+
+// @public (undocumented)
+export interface RedeemOutcomeRequest {
+    // (undocumented)
+    inputs: Proof[];
+    // (undocumented)
+    outputs: SerializedBlindedMessage[];
+}
+
+// @public (undocumented)
+export interface RedeemOutcomeResponse {
+    // (undocumented)
+    signatures: SerializedBlindedSignature[];
+}
+
+// @public (undocumented)
+export interface RegisterConditionRequest {
+    // (undocumented)
+    announcements: string[];
+    // (undocumented)
+    collateral?: string;
+    // (undocumented)
+    condition_type?: string;
+    // (undocumented)
+    fee?: Proof[];
+    // (undocumented)
+    hi_bound?: number;
+    // (undocumented)
+    lo_bound?: number;
+    // (undocumented)
+    outcome_collections?: string[];
+    // (undocumented)
+    outputs?: SerializedBlindedMessage[];
+    // (undocumented)
+    precision?: number;
+    // (undocumented)
+    tags?: string[][];
+    // (undocumented)
+    threshold?: number;
+}
+
+// @public (undocumented)
+export interface RegisterConditionResponse {
+    // (undocumented)
+    change?: SerializedBlindedSignature[];
+    // (undocumented)
+    condition_id: string;
+    // (undocumented)
+    keysets: Record<string, string>;
+}
+
 // @public (undocumented)
 export type RequestArgs = {
     endpoint: string;
@@ -1820,6 +2408,12 @@ export type SecretKind = 'P2PK' | 'HTLC' | (string & {});
 
 // @public (undocumented)
 export type SecretsPolicy = 'auto' | 'deterministic' | 'random';
+
+// @public
+export function selectCtfManifestOutputs(manifest: CtfPoolEntry[], selection: string): SerializedBlindedMessage[];
+
+// @public
+export function selectCtfRangeAmounts(manifest: CtfPoolEntry[], receiveAmount: Amount | string | bigint | number, changeAmount: Amount | string | bigint | number): CtfRangeSelection;
 
 // @public (undocumented)
 export type SelectProofs = (proofs: ProofLike[], amountToSelect: AmountLike, keyChain: KeyChain, includeFees?: boolean, exactMatch?: boolean, logger?: Logger) => SendResponse;
@@ -1997,6 +2591,9 @@ export const SigFlags: {
     readonly SIG_ALL: "SIG_ALL";
 };
 
+// @public
+export function signCtfSettlementRequest(request: CtfSettlementRequest, privateKey: string | Uint8Array): CtfSettlementRequest;
+
 // @public (undocumented)
 export function signMintQuote(privkey: string, quote: string, blindedMessages: SerializedBlindedMessage[]): string;
 
@@ -2005,6 +2602,9 @@ export function signP2PKProof(proof: Proof, privateKey: PrivKey, message?: strin
 
 // @public
 export function signP2PKProofs(proofs: Proof[], privateKey: PrivKey | PrivKey[], logger?: Logger, message?: string): Proof[];
+
+// @public
+export function signPayToUnlockRefund(request: SwapRequest, privateKey: string): SwapRequest;
 
 // @public
 export function sortProofsById(proofs: Proof[]): Proof[];
@@ -2138,6 +2738,12 @@ export class UnknownKeysetError extends CTSError {
     readonly refreshed: boolean;
 }
 
+// @public
+export function validateCtfPoolPolicyTotals(policy: CtfPoolPolicy, inputTotal: bigint, receiveTotal: bigint, changeTotal: bigint): void;
+
+// @public
+export function verifyCtfSettlementCoordinatorSignature(request: CtfSettlementRequest): boolean;
+
 // @public @deprecated (undocumented)
 export function verifyDleqIfPresent(proof: Proof, keyset: HasKeysetKeys): boolean;
 
@@ -2180,7 +2786,7 @@ export function verifyReceivedProofs<T extends ProofLike>(proofs: T[], getKeyset
 export function verifyUnblindedSignature(proof: UnblindedSignature, privKey: Uint8Array): boolean;
 
 // @public
-export class Wallet {
+class Wallet {
     constructor(mint: Mint | string, options?: {
         unit?: string;
         authProvider?: AuthProvider;
@@ -2194,6 +2800,7 @@ export class Wallet {
         outputDataCreator?: OutputDataCreator;
         requireSigDleq?: boolean;
         strictCachedKeysets?: boolean;
+        enableCtf?: boolean;
         logger?: Logger;
     });
     batchRestore(gapLimit?: number, batchSize?: number, counter?: number, keysetId?: string): Promise<{
@@ -2207,6 +2814,8 @@ export class Wallet {
     checkMeltQuoteBolt11(quote: string | MeltQuoteBolt11Response): Promise<MeltQuoteBolt11Response>;
     checkMeltQuoteBolt12(quote: string): Promise<MeltQuoteBolt12Response>;
     checkMeltQuoteOnchain(quote: string): Promise<MeltQuoteOnchainResponse>;
+    checkMintQuote(quote: string | MintQuoteBolt11Response): Promise<MintQuoteBolt11Response>;
+    // (undocumented)
     checkMintQuote<TRes extends MintQuoteBaseResponse = MintQuoteBaseResponse>(method: string, quote: string | Pick<TRes, 'quote'>, options?: {
         normalize?: (raw: Record<string, unknown>) => TRes;
     }): Promise<TRes>;
@@ -2222,6 +2831,8 @@ export class Wallet {
     // @deprecated (undocumented)
     checkProofsStates(proofs: Array<Pick<Proof, 'secret'>>): Promise<ProofState[]>;
     completeBatchMint(batchPreview: BatchMintPreview<Pick<MintQuoteBaseResponse, 'quote'>>): Promise<Proof[]>;
+    // (undocumented)
+    completeConditionalSwap(preview: ConditionalSwapPreview): Promise<Record<string, Proof[]>>;
     completeMelt<TQuote extends Pick<MeltQuoteBaseResponse, 'quote'> = MeltQuoteBaseResponse>(meltPreview: MeltPreview<TQuote>, privkey?: string | string[], options?: CompleteMeltOptions): Promise<MeltProofsResponse<TQuote>>;
     // @deprecated (undocumented)
     completeMelt<TQuote extends Pick<MeltQuoteBaseResponse, 'quote'> = MeltQuoteBaseResponse>(meltPreview: MeltPreview<TQuote>, privkey?: string | string[], preferAsync?: boolean): Promise<MeltProofsResponse<TQuote>>;
@@ -2230,12 +2841,16 @@ export class Wallet {
     readonly counters: WalletCounters;
     createLockedMintQuote(amount: AmountLike, pubkey: string, description?: string): Promise<MintQuoteBolt11Response>;
     createMeltChangeProofs(outputData: OutputDataLike[], changeSigs: SerializedBlindedSignature[]): Proof[];
+    createMeltQuote(invoice: string, amountMsat?: AmountLike): Promise<MeltQuoteBolt11Response>;
+    // (undocumented)
     createMeltQuote<TRes extends MeltQuoteBaseResponse = MeltQuoteBaseResponse>(method: string, payload: Record<string, unknown>, options?: {
         normalize?: (raw: Record<string, unknown>) => TRes;
     }): Promise<TRes>;
     createMeltQuoteBolt11(invoice: string, amountMsat?: AmountLike): Promise<MeltQuoteBolt11Response>;
     createMeltQuoteBolt12(offer: string, amountMsat?: AmountLike): Promise<MeltQuoteBolt12Response>;
     createMeltQuoteOnchain(address: string, amount: AmountLike): Promise<MeltQuoteOnchainResponse>;
+    createMintQuote(amount: AmountLike, description?: string): Promise<MintQuoteBolt11Response>;
+    // (undocumented)
     createMintQuote<TRes extends MintQuoteBaseResponse = MintQuoteBaseResponse>(method: string, payload: Record<string, unknown>, options?: {
         normalize?: (raw: Record<string, unknown>) => TRes;
     }): Promise<TRes>;
@@ -2246,6 +2861,7 @@ export class Wallet {
     }): Promise<MintQuoteBolt12Response>;
     createMintQuoteOnchain(pubkey: string): Promise<MintQuoteOnchainResponse>;
     createMultiPathMeltQuote(invoice: string, millisatPartialAmount: AmountLike): Promise<MeltQuoteBolt11Response>;
+    readonly ctf: WalletCtf | undefined;
     decodeToken(token: string): Token;
     defaultOutputType(): OutputType;
     ensureOperableKeysets(ids: Array<string | undefined>): Promise<void>;
@@ -2269,11 +2885,15 @@ export class Wallet {
     // (undocumented)
     get logger(): Logger;
     maxSpendableAfterFees(proofs: ProofLike[], feeReserve?: AmountLike): Amount;
+    meltProofs(meltQuote: MeltQuoteBolt11Response, proofsToSend: ProofLike[], config?: MeltProofsConfig, outputType?: OutputType): Promise<MeltProofsResponse<MeltQuoteBolt11Response>>;
+    // (undocumented)
     meltProofs<TQuote extends Pick<MeltQuoteBaseResponse, 'amount' | 'quote'>>(method: string, meltQuote: TQuote, proofsToSend: ProofLike[], config?: MeltProofsConfig, outputType?: OutputType): Promise<MeltProofsResponse<TQuote>>;
     meltProofsBolt11(meltQuote: MeltQuoteBolt11Response, proofsToSend: ProofLike[], config?: MeltProofsConfig, outputType?: OutputType): Promise<MeltProofsResponse<MeltQuoteBolt11Response>>;
     meltProofsBolt12(meltQuote: MeltQuoteBolt12Response, proofsToSend: ProofLike[], config?: MeltProofsConfig, outputType?: OutputType): Promise<MeltProofsResponse<MeltQuoteBolt12Response>>;
     meltProofsOnchain(meltQuote: MeltQuoteOnchainResponse, proofsToSend: ProofLike[], feeIndex: number, config?: MeltProofsConfig): Promise<MeltProofsResponse<MeltQuoteOnchainResponse>>;
     readonly mint: Mint;
+    mintProofs(amount: AmountLike, quote: string | MintQuoteBolt11Response, config?: MintProofsConfig, outputType?: OutputType): Promise<Proof[]>;
+    // (undocumented)
     mintProofs<TQuote extends Pick<MintQuoteBaseResponse, 'quote'>>(method: string, amount: AmountLike, quote: TQuote, config?: MintProofsConfig, outputType?: OutputType): Promise<Proof[]>;
     mintProofsBolt11(amount: AmountLike, quote: string | MintQuoteBolt11Response, config?: MintProofsConfig, outputType?: OutputType): Promise<Proof[]>;
     mintProofsBolt12(amount: AmountLike, quote: MintQuoteBolt12Response, privkey: string, config?: Omit<MintProofsConfig, 'privkey'>, outputType?: OutputType): Promise<Proof[]>;
@@ -2284,11 +2904,14 @@ export class Wallet {
         amount: AmountLike;
         quote: TQuote;
     }>, config?: MintProofsConfig, outputType?: OutputType): Promise<BatchMintPreview<TQuote>>;
+    prepareConditionalSwap(options: ConditionalSwapOptions): Promise<ConditionalSwapPreview>;
     prepareMelt<TQuote extends Pick<MeltQuoteBaseResponse, 'amount' | 'quote'>>(method: string, meltQuote: TQuote, proofsToSend: ProofLike[], config?: MeltProofsConfig, outputType?: OutputType): Promise<MeltPreview<TQuote>>;
     prepareMint<TQuote extends Pick<MintQuoteBaseResponse, 'quote'>>(method: string, amount: AmountLike, quote: TQuote, config?: MintProofsConfig, outputType?: OutputType): Promise<MintPreview<TQuote>>;
     prepareSwapToReceive(token: Token | string | ProofLike[], config?: ReceiveConfig, outputType?: OutputType): Promise<SwapPreview>;
     prepareSwapToSend(amount: AmountLike, proofs: ProofLike[], config?: SendConfig, outputConfig?: OutputConfig): Promise<SwapPreview>;
     receive(token: Token | string | ProofLike[], config?: ReceiveConfig, outputType?: OutputType): Promise<Proof[]>;
+    // (undocumented)
+    redeemOutcomeProofs(options: RedeemOutcomeProofsOptions): Promise<Proof[]>;
     restore(start: number, count: number, config?: RestoreConfig): Promise<{
         proofs: Proof[];
         lastCounterWithSignature?: number;
@@ -2297,12 +2920,16 @@ export class Wallet {
     send(amount: AmountLike, proofs: ProofLike[], config?: SendConfig, outputConfig?: OutputConfig): Promise<SendResponse>;
     sendOffline(amount: AmountLike, proofs: ProofLike[], config?: SendOfflineConfig): SendResponse;
     signP2PKProofs(proofs: ProofLike[], privkey: string | string[], outputData?: OutputDataLike[], quoteId?: string): Proof[];
+    // (undocumented)
+    swapConditional(options: ConditionalSwapOptions): Promise<Record<string, Proof[]>>;
     get unit(): string;
     verifyMintSignatures<T extends ProofLike = Proof>(proofs: T[], opts?: VerifyProofsOptions): Promise<ProofVerification<T>>;
     withKeyset(id: string, opts?: {
         counterSource?: CounterSource;
     }): Wallet;
 }
+export { Wallet as CashuWallet }
+export { Wallet }
 
 // @public
 export class WalletCounters {
@@ -2311,6 +2938,18 @@ export class WalletCounters {
     peekNext(keysetId: string): Promise<number>;
     setNext(keysetId: string, next: number): Promise<void>;
     snapshot(): Promise<Record<string, number>>;
+}
+
+// @public (undocumented)
+export interface WalletCtf {
+    // (undocumented)
+    completeConditionalSwap(preview: ConditionalSwapPreview): Promise<Record<string, Proof[]>>;
+    // (undocumented)
+    prepareConditionalSwap(options: ConditionalSwapOptions): Promise<ConditionalSwapPreview>;
+    // (undocumented)
+    redeemOutcomeProofs(options: RedeemOutcomeProofsOptions): Promise<Proof[]>;
+    // (undocumented)
+    swapConditional(options: ConditionalSwapOptions): Promise<Record<string, Proof[]>>;
 }
 
 // @public (undocumented)

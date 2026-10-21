@@ -144,6 +144,14 @@ export class OutputData implements OutputDataLike {
         `Mint signature keyset id ${sig.id} does not match output ${this.blindedMessage.id}`,
       );
     }
+    // A valid signature for another denomination must not replace a fixed output.
+    // Explicit blanks leave the amount to the mint for NUT-08 change or NUT-09 restore.
+    const requested = this.blindedMessage.amount;
+    if (!requested.isZero() && !sig.amount.equals(requested)) {
+      throw new CTSError(
+        `Mint signature amount ${sig.amount.toString()} does not match requested amount ${requested.toString()}. Inputs may already be spent; try restoring (NUT-09) to recover.`,
+      );
+    }
     let dleq: DLEQ | undefined;
     if (sig.dleq) {
       dleq = {
@@ -331,7 +339,7 @@ export class OutputData implements OutputDataLike {
   ): OutputData {
     const amountValue = Amount.from(amount);
     const secretBytes = typeof secret === 'string' ? new TextEncoder().encode(secret) : secret;
-    const { r, B_ } = blindMessageForKeyset(secretBytes, keysetId, blindingFactor);
+    const { r, B_ } = blindMessage(secretBytes, blindingFactor);
     return new OutputData(
       new BlindedMessage(amountValue, B_, keysetId).getSerializedBlindedMessage(),
       r,

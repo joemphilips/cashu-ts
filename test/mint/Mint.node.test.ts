@@ -906,7 +906,7 @@ describe('Mint normalization', () => {
       'Invalid response from mint',
     );
     expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
-      data: { not_signatures: true },
+      shape: 'object',
       op: 'swap',
     });
   });
@@ -937,7 +937,7 @@ describe('Mint normalization', () => {
 
     await expect(mint.restore({ outputs: [] })).rejects.toThrow('Invalid response from mint');
     expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
-      data: { outputs: [] },
+      shape: 'object',
       op: 'restore',
     });
   });
@@ -951,7 +951,7 @@ describe('Mint normalization', () => {
 
     await expect(mint.check({ Ys: [] })).rejects.toThrow('Invalid response from mint');
     expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
-      data: { invalid: true },
+      shape: 'object',
       op: 'check',
     });
   });
@@ -978,7 +978,7 @@ describe('Mint normalization', () => {
 
     await expect(mint.getKeySets()).rejects.toThrow('Invalid response from mint');
     expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
-      data: { invalid: true },
+      shape: 'object',
       op: 'getKeySets',
     });
   });
@@ -1346,7 +1346,7 @@ describe('Mint normalization', () => {
       }),
     ).rejects.toThrow('Invalid response from mint');
     expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
-      data: { not_signatures: true },
+      shape: 'object',
       op: 'mintBatch.bolt11',
     });
   });
@@ -1366,7 +1366,7 @@ describe('Mint normalization', () => {
       }),
     ).rejects.toThrow('Invalid response from mint');
     expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
-      data: { signatures: {} },
+      shape: 'object',
       op: 'mintBatch.bolt11',
     });
   });
@@ -1566,7 +1566,7 @@ describe('Mint normalization', () => {
     };
     const changeOutput = {
       id: '00bd033559de27d0',
-      amount: 1,
+      amount: Amount.from(1),
       B_: '02'.padEnd(66, '2'),
     };
     const seen: ReqArgs[] = [];
@@ -1664,7 +1664,7 @@ describe('Mint normalization', () => {
     const requestSpy = vi.fn(async (options: ReqArgs) => {
       expect(options.endpoint).toBe(`${mintUrl}/v1/ctf/convert`);
       expect(options.method).toBe('POST');
-      expect(options.requestBody).toBe(settlement);
+      expect(options.requestBody).toStrictEqual(settlement);
       return {
         signatures: [
           [{ id: '00bd033559de27d0', amount: 2, C_: '02'.padEnd(66, 'c') }],
@@ -1740,7 +1740,7 @@ describe('Mint normalization', () => {
       'Invalid response from mint',
     );
     expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
-      data: { signatures: {} },
+      shape: 'object',
       op: 'mint.bolt12',
     });
   });
@@ -2552,4 +2552,67 @@ describe('Mint response shape and cardinality', () => {
 
     expect(response.states).toHaveLength(0);
   });
+});
+
+describe('Mint malformed-response logging', () => {
+  const canary = 'synthetic-proof-material-must-not-be-logged';
+  const conditionId = '11'.repeat(32);
+  const cases: Array<{
+    operation: string;
+    call: (mint: Mint) => Promise<unknown>;
+    response?: unknown;
+  }> = [
+    { operation: 'swap', call: (mint) => mint.swap({ inputs: [], outputs: [] }) },
+    {
+      operation: 'mint.bolt11',
+      call: (mint) => mint.mint('bolt11', { quote: 'fixture', outputs: [] }),
+    },
+    {
+      operation: 'mintBatch.bolt11',
+      call: (mint) => mint.mintBatch('bolt11', { quotes: [], quote_amounts: [], outputs: [] }),
+    },
+    { operation: 'check', call: (mint) => mint.check({ Ys: [] }) },
+    { operation: 'getKeys', call: (mint) => mint.getKeys() },
+    { operation: 'getKeySets', call: (mint) => mint.getKeySets() },
+    { operation: 'restore', call: (mint) => mint.restore({ outputs: [] }) },
+    { operation: 'getConditionalKeysets', call: (mint) => mint.getConditionalKeysets() },
+    { operation: 'getConditions', call: (mint) => mint.getConditions() },
+    {
+      operation: 'registerCondition',
+      call: (mint) => mint.registerCondition({ announcements: [] }),
+    },
+    { operation: 'getCtfCondition', call: (mint) => mint.getCtfCondition(conditionId) },
+    {
+      operation: 'ctfConvert',
+      call: (mint) => mint.ctfConvert({ condition_id: conditionId, inputs: {}, outputs: {} }),
+    },
+    {
+      operation: 'ctfConvert',
+      call: (mint) => mint.ctfConvert({ condition_id: conditionId, inputs: {}, outputs: {} }),
+      response: { signatures: { YES: canary } },
+    },
+    {
+      operation: 'ctfSettle',
+      call: (mint) => mint.ctfSettle({ condition_id: conditionId, participants: [] }),
+    },
+    { operation: 'redeemOutcome', call: (mint) => mint.redeemOutcome({ inputs: [], outputs: [] }) },
+  ];
+
+  it.each(cases)(
+    'does not log arbitrary response fields for $operation',
+    async ({ operation, call, response }) => {
+      const logger = createLogger();
+      const mint = new Mint(mintUrl, {
+        customRequest: makeRequest(response ?? { secret: canary }),
+        logger,
+      });
+      await expect(call(mint)).rejects.toThrow();
+      expect(logger.error).toHaveBeenCalledWith('Invalid response from mint...', {
+        shape: 'object',
+        op: operation,
+      });
+      const calls = Object.values(logger).flatMap((method) => vi.mocked(method).mock.calls);
+      expect(JSON.stringify(calls)).not.toContain(canary);
+    },
+  );
 });

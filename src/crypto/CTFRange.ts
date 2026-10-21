@@ -1,6 +1,8 @@
 import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { bytesToNumberBE } from '@noble/curves/utils.js';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, utf8ToBytes, concatBytes } from '@noble/hashes/utils.js';
 
 import type { ConditionalKeysetInfo, CtfConditionInfo, CtfPoolEntry } from '../mint/types/ctf';
 import { Amount, type AmountLike } from '../model/Amount';
@@ -13,15 +15,15 @@ import type {
   SerializedBlindedSignature,
 } from '../model/types';
 import type { ProofState } from '../model/types/NUT07';
-import { Bytes, numberToHexPadded64 } from '../utils';
+import { numberToHexPadded64 } from '../utils';
 
+import { assertCanonicalKeysetId } from './CTF';
 import {
   computeCtfManifestCommitment,
   createCtfPayToUnlockSecret,
   createCtfSelectionBitmap,
   parseCtfSelectionBitmap,
 } from './CTFSettlement';
-import { assertCanonicalKeysetId } from './curves';
 import { deriveSecretAndBlindingFactor } from './NUT13';
 
 const DERIVATION_DOMAIN = 'Cashu/ctf/range/v1';
@@ -164,10 +166,10 @@ export function deriveCtfRangeRefundKey(seed: Uint8Array, operationId: string): 
   const order = secp256k1.Point.CURVE().n;
   for (let attempt = 0; attempt < 1 << 16; attempt += 1) {
     const candidate = hmac(sha256, material, uint32Be(attempt));
-    const scalar = Bytes.toBigInt(candidate);
+    const scalar = bytesToNumberBE(candidate);
     if (scalar === 0n || scalar >= order) continue;
     const privateKey = numberToHexPadded64(scalar);
-    const publicKey = Bytes.toHex(secp256k1.getPublicKey(candidate, true).slice(1));
+    const publicKey = bytesToHex(secp256k1.getPublicKey(candidate, true).slice(1));
     return { privateKey, publicKey };
   }
   throw new CTSError('could not derive a valid CTF refund key');
@@ -185,7 +187,7 @@ export function createCtfAuthorizationOutputs(
   return input.amounts.map((amount, index) => {
     const derived = deriveSecretAndBlindingFactor(seed, input.offerKeysetId, index);
     const secret = createCtfPayToUnlockSecret({
-      nonce: Bytes.toHex(derived.secret),
+      nonce: bytesToHex(derived.secret),
       data: input.commitment,
       offerKeyset: input.offerKeysetId,
       expiry: input.expiry,
@@ -197,7 +199,7 @@ export function createCtfAuthorizationOutputs(
       amount,
       input.offerKeysetId,
       secret,
-      Bytes.toBigInt(derived.blindingFactor),
+      bytesToNumberBE(derived.blindingFactor),
     );
   });
 }
@@ -476,15 +478,15 @@ function parseUnsigned(value: string | bigint | number, field: string): bigint {
 
 function deriveScopedSeed(seed: Uint8Array, operationId: string, label: string): Uint8Array {
   if (seed.length === 0) throw new CTSError('wallet seed must not be empty');
-  const operation = Bytes.fromString(operationId);
+  const operation = utf8ToBytes(operationId);
   if (operation.length === 0 || operation.length > 1024) {
     throw new CTSError('operationId must encode to 1..1024 bytes');
   }
-  const message = Bytes.concat(
-    Bytes.fromString(DERIVATION_DOMAIN),
+  const message = concatBytes(
+    utf8ToBytes(DERIVATION_DOMAIN),
     uint32Be(operation.length),
     operation,
-    Bytes.fromString(label),
+    utf8ToBytes(label),
   );
   return hmac(sha256, seed, message);
 }

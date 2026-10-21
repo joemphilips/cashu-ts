@@ -7,6 +7,7 @@
  */
 import type { AuthProvider } from '../auth/AuthProvider';
 import { OIDCAuth, type OIDCAuthOptions } from '../auth/OIDCAuth';
+import { parseSecret } from '../crypto/NUT10';
 import { type Logger, NULL_LOGGER, failIf } from '../logger';
 import { Amount, type AmountLike } from '../model/Amount';
 import { CTSError, MintOperationError } from '../model/Errors';
@@ -33,6 +34,7 @@ import {
   type MintQuoteOnchainResponse,
   type MeltQuoteOnchainRequest,
   type MeltQuoteOnchainResponse,
+  type Proof,
   type SwapRequest,
   type SerializedBlindedMessage,
   type SerializedBlindedSignature,
@@ -229,10 +231,19 @@ class Mint {
       'swap: inputs must be an array of proofs',
       this._logger,
     );
-    // `dleq` and `p2pk_e` are wallet-side data: keep them off the wire.
+    // CTF refund authorization binds every input field across the whole request.
+    // Ordinary swaps still omit wallet-side DLEQ and P2BK blinding data.
+    const hasCtfRefund = swapPayload.inputs.some((proof) => {
+      try {
+        return parseSecret(proof.secret)[0] === 'PAY_TO_UNLOCK';
+      } catch {
+        return false;
+      }
+    });
+    const inputs = hasCtfRefund ? swapPayload.inputs : this.stripWalletFields(swapPayload.inputs);
     const requestBody: SwapRequest = {
       ...swapPayload,
-      inputs: this.stripWalletFields(swapPayload.inputs).map((proof) =>
+      inputs: inputs.map((proof) =>
         typeof proof.witness === 'object' && proof.witness !== null
           ? { ...proof, witness: JSON.stringify(proof.witness) }
           : proof,
@@ -246,7 +257,10 @@ class Mint {
     );
 
     if (!isObj(data) || !Array.isArray(data?.signatures)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'swap' });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: 'swap',
+      });
       throw new CTSError('Invalid response from mint');
     }
     this.assertSignatureCount(data.signatures, swapPayload.outputs, 'swap');
@@ -603,7 +617,10 @@ class Mint {
     );
 
     if (!isObj(data) || !Array.isArray(data?.signatures)) {
-      this._logger.error('Invalid response from mint...', { data, op: `mint.${method}` });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: `mint.${method}`,
+      });
       throw new CTSError('Invalid response from mint');
     }
     this.assertSignatureCount(data.signatures, mintPayload.outputs, `mint.${method}`);
@@ -679,7 +696,10 @@ class Mint {
     );
 
     if (!isObj(data) || !Array.isArray(data?.signatures)) {
-      this._logger.error('Invalid response from mint...', { data, op: `mintBatch.${method}` });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: `mintBatch.${method}`,
+      });
       throw new CTSError('Invalid response from mint');
     }
     this.assertSignatureCount(data.signatures, mintPayload.outputs, `mintBatch.${method}`);
@@ -1036,7 +1056,10 @@ class Mint {
       !Array.isArray(data?.states) ||
       data.states.length > checkPayload.Ys.length
     ) {
-      this._logger.error('Invalid response from mint...', { data, op: 'check' });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: 'check',
+      });
       throw new CTSError('Invalid response from mint');
     }
 
@@ -1082,7 +1105,10 @@ class Mint {
     });
 
     if (!isObj(data) || !Array.isArray(data.keysets)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'getKeys' });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: 'getKeys',
+      });
       throw new CTSError('Invalid response from mint');
     }
     this.assertKeysetList(data.keysets, 'getKeys');
@@ -1107,7 +1133,10 @@ class Mint {
       logger: this._logger,
     });
     if (!isObj(data) || !Array.isArray(data.keysets)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'getKeySets' });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: 'getKeySets',
+      });
       throw new CTSError('Invalid response from mint');
     }
     this.assertKeysetList(data.keysets, 'getKeySets');
@@ -1145,7 +1174,10 @@ class Mint {
       data.outputs.length !== data.signatures.length ||
       data.outputs.length > restorePayload.outputs.length
     ) {
-      this._logger.error('Invalid response from mint...', { data, op: 'restore' });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: 'restore',
+      });
       throw new CTSError('Invalid response from mint');
     }
 
@@ -1179,7 +1211,10 @@ class Mint {
       customRequest,
     );
     if (!isObj(data) || !Array.isArray(data.keysets)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'getConditionalKeysets' });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: 'getConditionalKeysets',
+      });
       throw new CTSError('Invalid response from mint');
     }
     return {
@@ -1218,7 +1253,10 @@ class Mint {
     const path = suffix ? `/v1/conditions?${suffix}` : '/v1/conditions';
     const data = await this.requestWithAuth<GetConditionsResponse>('GET', path, {}, customRequest);
     if (!isObj(data) || !Array.isArray(data.conditions)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'getConditions' });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: 'getConditions',
+      });
       throw new CTSError('Invalid response from mint');
     }
     return { ...data, next_cursor: this.readCtfNextCursor(data.next_cursor) };
@@ -1239,11 +1277,14 @@ class Mint {
     const data = await this.requestWithAuth<RegisterConditionResponse>(
       'POST',
       '/v1/conditions',
-      { requestBody: payload as unknown as Record<string, unknown> },
+      { requestBody: { ...payload } },
       customRequest,
     );
     if (!isObj(data) || typeof data.condition_id !== 'string') {
-      this._logger.error('Invalid response from mint...', { data, op: 'registerCondition' });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: 'registerCondition',
+      });
       throw new CTSError('Invalid response from mint');
     }
     if (Array.isArray(data.change)) {
@@ -1284,7 +1325,10 @@ class Mint {
       condition.condition_id?.toLowerCase() !== normalizedConditionId ||
       !isObj(condition.keysets)
     ) {
-      this._logger.error('Invalid response from mint...', { data, op: 'getCtfCondition' });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: 'getCtfCondition',
+      });
       throw new CTSError(`Mint did not return condition ${normalizedConditionId}`);
     }
     return condition;
@@ -1364,16 +1408,22 @@ class Mint {
     const data = await this.requestWithAuth<CtfConvertResponse>(
       'POST',
       '/v1/ctf/convert',
-      { requestBody: requestPayload as unknown as Record<string, unknown> },
+      { requestBody: requestPayload },
       customRequest,
     );
     if (!isObj(data) || !isObj(data.signatures)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'ctfConvert' });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: 'ctfConvert',
+      });
       throw new CTSError('Invalid response from mint');
     }
     for (const [collection, signatures] of Object.entries(data.signatures)) {
       if (!Array.isArray(signatures)) {
-        this._logger.error('Invalid response from mint...', { data, op: 'ctfConvert' });
+        this._logger.error('Invalid response from mint...', {
+          shape: describeShape(data),
+          op: 'ctfConvert',
+        });
         throw new CTSError(`Mint returned invalid CTF convert signatures for ${collection}`);
       }
       data.signatures[collection] = this.normalizeSignatureAmounts(signatures);
@@ -1391,11 +1441,14 @@ class Mint {
     const data = await this.requestWithAuth<CtfSettlementResponse>(
       'POST',
       '/v1/ctf/convert',
-      { requestBody: payload as unknown as Record<string, unknown> },
+      { requestBody: { ...payload } },
       customRequest,
     );
     if (!isObj(data) || !Array.isArray(data.signatures)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'ctfSettle' });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: 'ctfSettle',
+      });
       throw new CTSError('Invalid response from mint');
     }
     if (data.signatures.length !== payload.participants.length) {
@@ -1442,11 +1495,14 @@ class Mint {
     const data = await this.requestWithAuth<RedeemOutcomeResponse>(
       'POST',
       '/v1/redeem_outcome',
-      { requestBody: requestPayload as unknown as Record<string, unknown> },
+      { requestBody: requestPayload },
       customRequest,
     );
     if (!isObj(data) || !Array.isArray(data.signatures)) {
-      this._logger.error('Invalid response from mint...', { data, op: 'redeemOutcome' });
+      this._logger.error('Invalid response from mint...', {
+        shape: describeShape(data),
+        op: 'redeemOutcome',
+      });
       throw new CTSError('Invalid response from mint');
     }
     data.signatures = this.normalizeSignatureAmounts(data.signatures);

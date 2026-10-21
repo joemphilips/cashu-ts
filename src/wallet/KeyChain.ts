@@ -475,7 +475,9 @@ export class KeyChain {
    */
   getKeysets(): Keyset[] {
     this.assertInitialized();
-    const unitKeysets = Object.values(this.keysets).filter((k) => !k.isConditional && k.unit === this.unit);
+    const unitKeysets = Object.values(this.keysets).filter(
+      (k) => !k.isConditional && k.unit === this.unit,
+    );
     failIf(unitKeysets.length === 0, `No keysets found for unit: ${this.unit}`, this._logger, {
       unit: this.unit,
     });

@@ -1361,3 +1361,37 @@ describe('KeyChain.ensureKeysetKeys', () => {
     expect(spy.mock.calls.filter((c) => c[0] === KEYS_ID)).toHaveLength(1);
   });
 });
+
+describe('conditional and ordinary keyset validation parity', () => {
+  const conditional = {
+    conditionId: CTF_CONDITION_ID,
+    outcomeCollection: 'YES',
+    outcomeCollectionId: CTF_OUTCOME_COLLECTION_ID,
+  };
+  const key = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';
+
+  test.each([
+    {
+      name: 'duplicate denomination public keys',
+      keys: { 1: key, 2: key.toUpperCase() },
+      conditionalId: '0168720b544bea40efb81d591fb7e1566ddce4a90ca2cde87668c270f27439e2da',
+    },
+    {
+      name: '257 denominations',
+      keys: Object.fromEntries(
+        Array.from({ length: 257 }, (_, i) => [
+          String(i + 1),
+          '02' + (i + 1).toString(16).padStart(64, '0'),
+        ]),
+      ),
+      conditionalId: '01a964c6719d403abe17c13c3f9c0a53d2220e592c2f92d8f7a5edd4688d651f2a',
+    },
+  ])('rejects $name even when the attacker supplies its matching id', ({ keys, conditionalId }) => {
+    const ordinary = { unit: 'sat', keys, id: deriveKeysetId(keys) };
+    expect(Keyset.verifyKeysetId(ordinary)).toBe(false);
+    // These fixed conditional IDs were produced by the unguarded implementation.
+    expect(Keyset.verifyConditionalKeysetId({ ...ordinary, id: conditionalId }, conditional)).toBe(
+      false,
+    );
+  });
+});

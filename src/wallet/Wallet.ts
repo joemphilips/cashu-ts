@@ -1940,10 +1940,8 @@ class Wallet {
 
   async completeConditionalSwap(preview: ConditionalSwapPreview): Promise<Record<string, Proof[]>> {
     const flatOutputs = Object.values(preview.outputDataByLabel).flat();
-    const wireOutputs = flatOutputs.map((output) => ({
-      ...output.blindedMessage,
-      amount: output.blindedMessage.amount.toNumber(),
-    })) as unknown as SwapRequest['outputs'];
+    // Mint.swap uses JSONInt to encode Amount values as exact wire integers.
+    const wireOutputs = flatOutputs.map((output) => output.blindedMessage);
     const { signatures } = await this.mint.swap({
       inputs: preview.inputs,
       outputs: wireOutputs,

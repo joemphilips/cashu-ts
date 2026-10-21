@@ -92,6 +92,35 @@ describe('OutputData secp round-trip (secp256k1 + NUT-12 DLEQ)', () => {
     }
   });
 
+  test.each([1, 8])(
+    'rejects a valid mint signature for amount %i instead of the requested 4',
+    (amount) => {
+      const requested = OutputData.createSingleData(4, keyset.id, 'fixed-output-amount', 7n);
+      // The mint signs the same blinded point under another denomination's real key.
+      // DLEQ succeeds, so amount binding must reject the economic substitution.
+      const substituted = new OutputData(
+        { ...requested.blindedMessage, amount: Amount.from(amount) },
+        requested.blindingFactor,
+        requested.secret,
+      );
+      const signature = signWithMint(substituted, privKeys, keyset.id);
+      expect(substituted.toProof(signature, keyset).amount).toEqual(Amount.from(amount));
+      expect(() => requested.toProof(signature, keyset)).toThrow(/does not match requested amount/);
+    },
+  );
+
+  test('allows a mint-selected amount for an explicit blank output', () => {
+    const blank = OutputData.createSingleData(0, keyset.id, 'blank-output-amount', 11n);
+    const filled = new OutputData(
+      { ...blank.blindedMessage, amount: Amount.from(8) },
+      blank.blindingFactor,
+      blank.secret,
+    );
+    expect(blank.toProof(signWithMint(filled, privKeys, keyset.id), keyset).amount).toEqual(
+      Amount.from(8),
+    );
+  });
+
   test('attaches the DLEQ proof with wallet r on the Proof', () => {
     const out = OutputData.createSingleRandomData(8, keyset.id);
     const sig = signWithMint(out, privKeys, keyset.id);
