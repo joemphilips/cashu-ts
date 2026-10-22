@@ -745,6 +745,20 @@ export declare class AuthManager implements AuthProvider {
       */
      export declare function createCtfAuthorizationOutputs(input: CreateCtfAuthorizationOutputsInput): OutputData[];
 
+     /**
+      * Build contextual PAY_TO_UNLOCK outputs with disjoint nonce and blinding counters. These JSON
+      * secrets are not targets of a plain NUT-13 seed scan. Retain exact authorization context for
+      * ordinary recovery. No counters are allocated here.
+      */
+     export declare function createCtfAuthorizationOutputsFromCounters(input: CreateCtfAuthorizationOutputsFromCountersInput): OutputData[];
+
+     /**
+      * Contextual authorization outputs require retained JSON context for recovery.
+      */
+     export declare interface CreateCtfAuthorizationOutputsFromCountersInput extends Omit<CreateCtfAuthorizationOutputsInput, 'operationId'> {
+         authorizationCounters: CounterRange;
+     }
+
      export declare interface CreateCtfAuthorizationOutputsInput {
          seed: Uint8Array;
          operationId: string;
@@ -792,6 +806,21 @@ export declare class AuthManager implements AuthProvider {
       * Create a deterministic powers-of-two range manifest and retain every entry's unblinding data.
       */
      export declare function createCtfRangeManifest(input: CreateCtfRangeManifestInput): CtfRangeManifestMaterial;
+
+     /**
+      * Build plain NUT-13 manifest outputs from caller-reserved, per-keyset ranges. Global manifest
+      * indices do not select derivation counters. The caller must reserve both ranges atomically and
+      * prevent overlap with authorization counters.
+      */
+     export declare function createCtfRangeManifestFromCounters(input: CreateCtfRangeManifestFromCountersInput): CtfRangeManifestMaterial;
+
+     /**
+      * Explicit ranges already reserved by the caller; this API allocates no counters.
+      */
+     export declare interface CreateCtfRangeManifestFromCountersInput extends Omit<CreateCtfRangeManifestInput, 'operationId'> {
+         receiveCounters: CounterRange;
+         changeCounters: CounterRange;
+     }
 
      export declare interface CreateCtfRangeManifestInput {
          seed: Uint8Array;
@@ -1099,6 +1128,18 @@ export declare class AuthManager implements AuthProvider {
          manifestIndex: number;
          amount: AmountLike;
          keysetId: string;
+     }
+
+     /**
+      * Reconstruct one fixed-amount plain output, including from an inactive keyset.
+      */
+     export declare function deriveCtfRangeOutputFromCounter(input: DeriveCtfRangeOutputFromCounterInput): OutputData;
+
+     export declare interface DeriveCtfRangeOutputFromCounterInput {
+         seed: Uint8Array;
+         keysetId: string;
+         counter: number;
+         amount: AmountLike;
      }
 
      /**

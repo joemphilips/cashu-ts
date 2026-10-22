@@ -1,0 +1,191 @@
+{
+  "authorizationCase": {
+    "context": {
+      "coordinatorPublicKeyXOnly": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+      "expiry": "1900000000",
+      "poolPolicy": {
+        "max_debit": "7",
+        "min_receive": "1",
+        "rate_d": "3",
+        "rate_n": "5"
+      },
+      "refundXOnly": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    },
+    "counterRange": {
+      "count": 4,
+      "start": 12
+    },
+    "outputs": [
+      {
+        "B_": "03616bbeeef85daef11159b34ac26834e264f4bba3240af1e686b7557a00643beb",
+        "amount": "1",
+        "authorizationIndex": 0,
+        "blindingCounter": 13,
+        "blindingFactorHex": "14312227852e8f7ed3b839c082c948cf3e568e4df4820669c7704c1d86bb90df",
+        "id": "0188ee0e0b6e3bd8d71007802386fcf88e1aaef2bbfd7b62755e29c116b1f12c52",
+        "nonceCounter": 12,
+        "nonceSecretHex": "fc739d61eb8cd88d7402f0e2e2c252532163c5eec732f1b6e29baef623ab3b7f",
+        "secretJson": "[\"PAY_TO_UNLOCK\",{\"data\":\"4044ac9a0d77b094e44c6dc7c8fa01f03d3eaee2dae33183e6ca225f4f00fa29\",\"nonce\":\"fc739d61eb8cd88d7402f0e2e2c252532163c5eec732f1b6e29baef623ab3b7f\",\"tags\":[[\"offer_keyset\",\"0188ee0e0b6e3bd8d71007802386fcf88e1aaef2bbfd7b62755e29c116b1f12c52\"],[\"expiry\",\"1900000000\"],[\"refund\",\"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\"],[\"coordinator_pubkey\",\"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\"],[\"rate_n\",\"5\"],[\"rate_d\",\"3\"],[\"min_receive\",\"1\"],[\"max_debit\",\"7\"]]}]"
+      },
+      {
+        "B_": "0377bceeaedc2ae30e9a60e95fb6506d203969dfecdff76ecefde254ebb2a9aa5f",
+        "amount": "2",
+        "authorizationIndex": 1,
+        "blindingCounter": 15,
+        "blindingFactorHex": "ca2f0258b2c4fa63683d1d76ff953b676e57d38b12678966afdf613a8e39d2c3",
+        "id": "0188ee0e0b6e3bd8d71007802386fcf88e1aaef2bbfd7b62755e29c116b1f12c52",
+        "nonceCounter": 14,
+        "nonceSecretHex": "8f143276a1b759d2da05e5d00bffb5a020a6d27a1b98d42f9fe8620d911d3bad",
+        "secretJson": "[\"PAY_TO_UNLOCK\",{\"data\":\"4044ac9a0d77b094e44c6dc7c8fa01f03d3eaee2dae33183e6ca225f4f00fa29\",\"nonce\":\"8f143276a1b759d2da05e5d00bffb5a020a6d27a1b98d42f9fe8620d911d3bad\",\"tags\":[[\"offer_keyset\",\"0188ee0e0b6e3bd8d71007802386fcf88e1aaef2bbfd7b62755e29c116b1f12c52\"],[\"expiry\",\"1900000000\"],[\"refund\",\"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\"],[\"coordinator_pubkey\",\"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\"],[\"rate_n\",\"5\"],[\"rate_d\",\"3\"],[\"min_receive\",\"1\"],[\"max_debit\",\"7\"]]}]"
+      }
+    ],
+    "pairingRule": "nonce secret at start+2*k; r at start+2*k+1",
+    "recoveryNote": "Contextual PAY_TO_UNLOCK JSON; excluded from phrase-only scan when retained context is lost."
+  },
+  "boundaryCases": [
+    {
+      "B_": "02e9b40b88bcc800d14faad84e2e8e9c9ba1c9170b0fb7aa0477afce6b67db2ebc",
+      "amount": "1",
+      "counter": 0,
+      "id": "01abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "label": "zero",
+      "r": "f51a6c21c42ee42b124418db8e5f5038ea976a8e400255c6630c22347490045d",
+      "secret": "58ac300f710285213c52f9da34694e4d6ea541fe69b41fad07b3ba8cef375be2"
+    },
+    {
+      "B_": "03b4144e2d392e4104e743a0911f8e53605000033c35e4dbba2e9ef7affbf44ecf",
+      "amount": "1",
+      "counter": 9007199254740991,
+      "id": "01abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "label": "maximum-safe-integer",
+      "r": "f7876e56b643aa84cdfd6149316b989f98bf082416c77896b87e3194d8dfcf97",
+      "secret": "7cddd7bba3b66c26370d8c67515937add5c25166db32eaa0d5d003c36a41cd93"
+    }
+  ],
+  "keysets": {
+    "offer": "0188ee0e0b6e3bd8d71007802386fcf88e1aaef2bbfd7b62755e29c116b1f12c52",
+    "receive": "01abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+  },
+  "manifestCase": {
+    "canonicalEntryBytes": [
+      "{\"B_\":\"02b7cba2eb741690b3e51f16c092a6591cd4963eec6c624f20bb0c558df15c2f1f\",\"amount\":\"1\",\"id\":\"01abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\",\"index\":\"0\",\"role\":\"receive\"}",
+      "{\"B_\":\"024aa1a998634a0ca1ca8c25d6488c6c4ababc3277d5d88f5600f463524ce354a3\",\"amount\":\"2\",\"id\":\"01abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\",\"index\":\"1\",\"role\":\"receive\"}",
+      "{\"B_\":\"023057e01934299bab320120517419225f1ae5c5a58b40b6400e97a9e9a3ab9545\",\"amount\":\"4\",\"id\":\"01abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\",\"index\":\"2\",\"role\":\"receive\"}",
+      "{\"B_\":\"02b622e03dfaf12c0c2e991f39d21cf93d20d260c301e6e69711f6423955d5ab5a\",\"amount\":\"1\",\"id\":\"0188ee0e0b6e3bd8d71007802386fcf88e1aaef2bbfd7b62755e29c116b1f12c52\",\"index\":\"3\",\"role\":\"change\"}",
+      "{\"B_\":\"032a194b60248f77b39116b68586cbda476ff68e7fded3491c398aeb4824774e4e\",\"amount\":\"2\",\"id\":\"0188ee0e0b6e3bd8d71007802386fcf88e1aaef2bbfd7b62755e29c116b1f12c52\",\"index\":\"4\",\"role\":\"change\"}"
+    ],
+    "changeCounterRange": {
+      "count": 2,
+      "start": 9
+    },
+    "commitment": "4044ac9a0d77b094e44c6dc7c8fa01f03d3eaee2dae33183e6ca225f4f00fa29",
+    "commitmentDomain": "Cashu/ctf/convert/manifest",
+    "entries": [
+      {
+        "B_": "02b7cba2eb741690b3e51f16c092a6591cd4963eec6c624f20bb0c558df15c2f1f",
+        "amount": "1",
+        "counter": 5,
+        "id": "01abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "index": "0",
+        "r": "28bdd969f307311791e6a4ec6da53caefd18b967df87c34d13e8f1380e93972d",
+        "role": "receive",
+        "secret": "4a00643d7c3d6a5359c36c1eaed4e8509e5f4298f44400b9cc8ffeabafe0efd1"
+      },
+      {
+        "B_": "024aa1a998634a0ca1ca8c25d6488c6c4ababc3277d5d88f5600f463524ce354a3",
+        "amount": "2",
+        "counter": 6,
+        "id": "01abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "index": "1",
+        "r": "cb4b61436c6188cae295ce9eb6d9eab3ad085bfbeb231e2f8f6c0c8cafd83562",
+        "role": "receive",
+        "secret": "ae7f1aedb056ae6f066c85d253714dff7c979cd04e900bdc7c6402e467f132e7"
+      },
+      {
+        "B_": "023057e01934299bab320120517419225f1ae5c5a58b40b6400e97a9e9a3ab9545",
+        "amount": "4",
+        "counter": 7,
+        "id": "01abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "index": "2",
+        "r": "12d0b731adf8c60378d667803e4334fd184ab1f22d0f48d68fb832394ccc7a82",
+        "role": "receive",
+        "secret": "b3627b691487622e637e7a73d62030f678ae4d5ebe9be3c09a0969585c46d3b6"
+      },
+      {
+        "B_": "02b622e03dfaf12c0c2e991f39d21cf93d20d260c301e6e69711f6423955d5ab5a",
+        "amount": "1",
+        "counter": 9,
+        "id": "0188ee0e0b6e3bd8d71007802386fcf88e1aaef2bbfd7b62755e29c116b1f12c52",
+        "index": "3",
+        "r": "39c6f844363c82aeeb51f29afdc0e826ecfa89ea528279463c7b4331dcdf6fb2",
+        "role": "change",
+        "secret": "a06891ec71c039095b0f32586a9d709bd0c3aca224269b09f2496d427ffcc976"
+      },
+      {
+        "B_": "032a194b60248f77b39116b68586cbda476ff68e7fded3491c398aeb4824774e4e",
+        "amount": "2",
+        "counter": 10,
+        "id": "0188ee0e0b6e3bd8d71007802386fcf88e1aaef2bbfd7b62755e29c116b1f12c52",
+        "index": "4",
+        "r": "ac6dc75a4caf03c68566b34251e06f2225a5df9a46497b54306c87ecd6c89506",
+        "role": "change",
+        "secret": "b8a1ca70289007820be74094d71f684f00fd005eb4ad01cc96325d5a382f2e27"
+      }
+    ],
+    "maxChange": "3",
+    "maxReceive": "5",
+    "receiveCounterRange": {
+      "count": 3,
+      "start": 5
+    },
+    "serializedManifest": [
+      {
+        "B_": "02b7cba2eb741690b3e51f16c092a6591cd4963eec6c624f20bb0c558df15c2f1f",
+        "amount": "1",
+        "id": "01abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "index": "0",
+        "role": "receive"
+      },
+      {
+        "B_": "024aa1a998634a0ca1ca8c25d6488c6c4ababc3277d5d88f5600f463524ce354a3",
+        "amount": "2",
+        "id": "01abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "index": "1",
+        "role": "receive"
+      },
+      {
+        "B_": "023057e01934299bab320120517419225f1ae5c5a58b40b6400e97a9e9a3ab9545",
+        "amount": "4",
+        "id": "01abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "index": "2",
+        "role": "receive"
+      },
+      {
+        "B_": "02b622e03dfaf12c0c2e991f39d21cf93d20d260c301e6e69711f6423955d5ab5a",
+        "amount": "1",
+        "id": "0188ee0e0b6e3bd8d71007802386fcf88e1aaef2bbfd7b62755e29c116b1f12c52",
+        "index": "3",
+        "role": "change"
+      },
+      {
+        "B_": "032a194b60248f77b39116b68586cbda476ff68e7fded3491c398aeb4824774e4e",
+        "amount": "2",
+        "id": "0188ee0e0b6e3bd8d71007802386fcf88e1aaef2bbfd7b62755e29c116b1f12c52",
+        "index": "4",
+        "role": "change"
+      }
+    ]
+  },
+  "provenance": {
+    "generator": "Python standard library only; independent hand-coded secp256k1 and protocol serialization",
+    "knownVectorChecks": [
+      "NUT-13 HMAC keyset/counter 0 secret and r",
+      "Cashu NUT-00 H2C secret 00..00 and 00..01"
+    ],
+    "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+    "passphrase": "",
+    "seedDerivation": "BIP39 PBKDF2-HMAC-SHA512, salt=mnemonic, iterations=2048",
+    "warning": "Public test mnemonic only. Never use this fixture seed for funds."
+  },
+  "schema": "bitcaster-p8d-independent-cashu-output-vectors-v1"
+}

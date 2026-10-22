@@ -16,6 +16,7 @@ import type {
 } from '../model/types';
 import type { ProofState } from '../model/types/NUT07';
 import { numberToHexPadded64 } from '../utils';
+import type { CounterRange } from '../wallet/CounterSource';
 
 import { assertCanonicalKeysetId } from './CTF';
 import {
@@ -88,6 +89,201 @@ export interface CreateCtfAuthorizationOutputsInput {
     minReceive: string | bigint | number;
     maxDebit: string | bigint | number;
   };
+}
+
+/**
+ * Explicit ranges already reserved by the caller; this API allocates no counters.
+ */
+export interface CreateCtfRangeManifestFromCountersInput extends Omit<
+  CreateCtfRangeManifestInput,
+  'operationId'
+> {
+  receiveCounters: CounterRange;
+  changeCounters: CounterRange;
+}
+
+export interface DeriveCtfRangeOutputFromCounterInput {
+  seed: Uint8Array;
+  keysetId: string;
+  counter: number;
+  amount: AmountLike;
+}
+
+/**
+ * Contextual authorization outputs require retained JSON context for recovery.
+ */
+export interface CreateCtfAuthorizationOutputsFromCountersInput extends Omit<
+  CreateCtfAuthorizationOutputsInput,
+  'operationId'
+> {
+  authorizationCounters: CounterRange;
+}
+
+/**
+ * Build plain NUT-13 manifest outputs from caller-reserved, per-keyset ranges. Global manifest
+ * indices do not select derivation counters. The caller must reserve both ranges atomically and
+ * prevent overlap with authorization counters.
+ */
+export function createCtfRangeManifestFromCounters(
+  input: CreateCtfRangeManifestFromCountersInput,
+): CtfRangeManifestMaterial {
+  const specs = validateCounterInput(() => {
+    validateCounterSeed(input.seed);
+    validateCounterKeyset(input.receiveKeyset.id);
+    validateCounterKeyset(input.offerKeyset.id);
+    validateRangeKeyset(input.receiveKeyset, 'receive');
+    validateRangeKeyset(input.offerKeyset, 'offer');
+    if (input.receiveKeyset.id === input.offerKeyset.id)
+      throw new CTSError('CTF keysets must differ');
+    if (!Number.isSafeInteger(input.maxEntries) || input.maxEntries < 2) {
+      throw new CTSError('Invalid CTF manifest limit');
+    }
+    const receive = rangeSpecs(input.receiveKeyset, input.maxReceive, 'receive');
+    const change = rangeSpecs(input.offerKeyset, input.maxChange, 'change');
+    if (receive.length + change.length > input.maxEntries)
+      throw new CTSError('CTF manifest exceeds maxEntries');
+    validateCounterRange(input.receiveCounters, receive.length);
+    validateCounterRange(input.changeCounters, change.length);
+    return [
+      ...receive.map((spec, index) => ({ ...spec, counter: input.receiveCounters.start + index })),
+      ...change.map((spec, index) => ({ ...spec, counter: input.changeCounters.start + index })),
+    ];
+  });
+  const entries = specs.map((spec, index) => {
+    const outputData = OutputData.createSingleDeterministicData(
+      spec.amount,
+      input.seed,
+      spec.counter,
+      spec.keysetId,
+    );
+    const entry: CtfPoolEntry = {
+      index: String(index),
+      role: spec.role,
+      amount: spec.amount.toString(),
+      id: spec.keysetId,
+      B_: outputData.blindedMessage.B_,
+    };
+    return { entry, outputData };
+  });
+  const serialized = entries.map(({ entry }) => entry);
+  return { entries, serialized, commitment: computeCtfManifestCommitment(serialized) };
+}
+
+/**
+ * Reconstruct one fixed-amount plain output, including from an inactive keyset.
+ */
+export function deriveCtfRangeOutputFromCounter(
+  input: DeriveCtfRangeOutputFromCounterInput,
+): OutputData {
+  const amount = validateCounterInput(() => {
+    validateCounterSeed(input.seed);
+    validateCounterKeyset(input.keysetId);
+    validateCounterRange({ start: input.counter, count: 1 }, 1);
+    const amount = positiveCounterAmount(input.amount);
+    const value = amount.toBigInt();
+    if ((value & (value - 1n)) !== 0n) throw new CTSError('Invalid CTF range amount');
+    return amount;
+  });
+  return OutputData.createSingleDeterministicData(
+    amount,
+    input.seed,
+    input.counter,
+    input.keysetId,
+  );
+}
+
+/**
+ * Build contextual PAY_TO_UNLOCK outputs with disjoint nonce and blinding counters. These JSON
+ * secrets are not targets of a plain NUT-13 seed scan. Retain exact authorization context for
+ * ordinary recovery. No counters are allocated here.
+ */
+export function createCtfAuthorizationOutputsFromCounters(
+  input: CreateCtfAuthorizationOutputsFromCountersInput,
+): OutputData[] {
+  const amounts = validateCounterInput(() => {
+    validateCounterSeed(input.seed);
+    validateCounterKeyset(input.offerKeysetId);
+    if (!Array.isArray(input.amounts) || input.amounts.length === 0)
+      throw new CTSError('Invalid CTF authorization amounts');
+    validateCounterRange(input.authorizationCounters, input.amounts.length * 2);
+    const amounts = Array.from(input.amounts, positiveCounterAmount);
+    validateAuthorizationExpiry(input.expiry, input.expiryContext);
+    // Validate all contextual fields before deriving any secret or output.
+    createCtfPayToUnlockSecret({
+      nonce: '00'.repeat(32),
+      data: input.commitment,
+      offerKeyset: input.offerKeysetId,
+      expiry: input.expiry,
+      refund: input.refund,
+      coordinatorPublicKey: input.coordinatorPublicKey,
+      poolPolicy: input.poolPolicy,
+    });
+    return amounts;
+  });
+  return amounts.map((amount, index) => {
+    const counter = input.authorizationCounters.start + index * 2;
+    const nonce = deriveSecretAndBlindingFactor(input.seed, input.offerKeysetId, counter).secret;
+    const blinding = deriveSecretAndBlindingFactor(
+      input.seed,
+      input.offerKeysetId,
+      counter + 1,
+    ).blindingFactor;
+    const secret = createCtfPayToUnlockSecret({
+      nonce: bytesToHex(nonce),
+      data: input.commitment,
+      offerKeyset: input.offerKeysetId,
+      expiry: input.expiry,
+      refund: input.refund,
+      coordinatorPublicKey: input.coordinatorPublicKey,
+      poolPolicy: input.poolPolicy,
+    });
+    return OutputData.createSingleData(
+      amount,
+      input.offerKeysetId,
+      secret,
+      bytesToNumberBE(blinding),
+    );
+  });
+}
+
+function validateCounterInput<T>(validate: () => T): T {
+  try {
+    return validate();
+  } catch {
+    throw new CTSError('Invalid CTF counter input');
+  }
+}
+
+function validateCounterSeed(seed: Uint8Array): void {
+  if (!(seed instanceof Uint8Array) || seed.length < 16 || seed.length > 64)
+    throw new CTSError('Invalid CTF seed');
+}
+
+function validateCounterKeyset(id: string): void {
+  if (typeof id !== 'string' || !/^01[0-9a-f]{64}$/.test(id))
+    throw new CTSError('Invalid CTF keyset');
+}
+
+function validateCounterRange(range: CounterRange, count: number): void {
+  if (
+    !range ||
+    !Number.isSafeInteger(range.start) ||
+    range.start < 0 ||
+    !Number.isSafeInteger(range.count) ||
+    range.count < 0 ||
+    !Number.isSafeInteger(count) ||
+    range.count !== count
+  )
+    throw new CTSError('Invalid CTF counter range');
+  if (count > 0 && range.start > Number.MAX_SAFE_INTEGER - (count - 1))
+    throw new CTSError('CTF counter range exhausted');
+}
+
+function positiveCounterAmount(value: AmountLike): Amount {
+  const amount = Amount.from(value);
+  if (amount.toBigInt() < 1n || amount.toBigInt() > MAX_U64)
+    throw new CTSError('Invalid CTF amount');
+  return amount;
 }
 
 export type CtfSettlementRecoveryClassification =

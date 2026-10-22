@@ -408,6 +408,15 @@ export function createBlindSignature(B_: WeierstrassPoint<bigint>, privateKey: U
 // @public
 export function createCtfAuthorizationOutputs(input: CreateCtfAuthorizationOutputsInput): OutputData[];
 
+// @public
+export function createCtfAuthorizationOutputsFromCounters(input: CreateCtfAuthorizationOutputsFromCountersInput): OutputData[];
+
+// @public
+export interface CreateCtfAuthorizationOutputsFromCountersInput extends Omit<CreateCtfAuthorizationOutputsInput, 'operationId'> {
+    // (undocumented)
+    authorizationCounters: CounterRange;
+}
+
 // @public (undocumented)
 export interface CreateCtfAuthorizationOutputsInput {
     // (undocumented)
@@ -470,6 +479,17 @@ export interface CreateCtfPayToUnlockSecretInput {
 
 // @public
 export function createCtfRangeManifest(input: CreateCtfRangeManifestInput): CtfRangeManifestMaterial;
+
+// @public
+export function createCtfRangeManifestFromCounters(input: CreateCtfRangeManifestFromCountersInput): CtfRangeManifestMaterial;
+
+// @public
+export interface CreateCtfRangeManifestFromCountersInput extends Omit<CreateCtfRangeManifestInput, 'operationId'> {
+    // (undocumented)
+    changeCounters: CounterRange;
+    // (undocumented)
+    receiveCounters: CounterRange;
+}
 
 // @public (undocumented)
 export interface CreateCtfRangeManifestInput {
@@ -780,6 +800,21 @@ export interface DeriveCtfRangeManifestOutputDataInput {
     manifestIndex: number;
     // (undocumented)
     rangeOperationId: string;
+    // (undocumented)
+    seed: Uint8Array;
+}
+
+// @public
+export function deriveCtfRangeOutputFromCounter(input: DeriveCtfRangeOutputFromCounterInput): OutputData;
+
+// @public (undocumented)
+export interface DeriveCtfRangeOutputFromCounterInput {
+    // (undocumented)
+    amount: AmountLike;
+    // (undocumented)
+    counter: number;
+    // (undocumented)
+    keysetId: string;
     // (undocumented)
     seed: Uint8Array;
 }
