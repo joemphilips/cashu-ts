@@ -921,6 +921,7 @@ export interface GeneratedConditionalSwapOutputGroup {
 export interface GetConditionalKeysetsQuery {
     // (undocumented)
     active?: boolean;
+    condition_id?: string;
     // (undocumented)
     cursor?: string;
     // (undocumented)

@@ -236,3 +236,12 @@ No maintenance needed: the next operation that meets rotation evidence repairs i
   grouping).
 - Rotation behavior end to end:
   [`wallet-rotation.node.test.ts`](https://github.com/cashubtc/cashu-ts/blob/v4-dev/test/wallet/wallet-rotation.node.test.ts).
+
+### Condition-scoped history
+
+`mint.getConditionalKeysets({ condition_id, limit: 100, cursor })` selects one
+condition. The selector must contain exactly 64 lowercase hexadecimal characters.
+For recovery, first require `nuts.CTF.condition_keyset_filter === true` from mint
+info. Keep the same selector on every page. Omit `active` to include historical
+inactive keysets. Reject foreign-condition metadata before deriving outputs. Do
+not fall back to an unscoped listing when the capability is absent or false.

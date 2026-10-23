@@ -1197,7 +1197,14 @@ class Mint {
     query: GetConditionalKeysetsQuery = {},
     customRequest?: RequestFn,
   ): Promise<ConditionalKeysetsResponse> {
+    if (
+      query.condition_id !== undefined &&
+      (typeof query.condition_id !== 'string' || !/^[0-9a-f]{64}$/.test(query.condition_id))
+    ) {
+      throw new CTSError('condition_id must be 64 lowercase hexadecimal characters');
+    }
     const params = new URLSearchParams();
+    if (query.condition_id !== undefined) params.set('condition_id', query.condition_id);
     if (query.since !== undefined) params.set('since', String(query.since));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.active !== undefined) params.set('active', String(query.active));

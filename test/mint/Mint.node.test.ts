@@ -1484,6 +1484,34 @@ describe('Mint normalization', () => {
     expect(requestSpy).not.toHaveBeenCalled();
   });
 
+  it('keeps the exact condition selector with opaque cursors and omits active for history', async () => {
+    const conditionId = 'ab'.repeat(32);
+    const requestSpy = vi.fn(async (options: ReqArgs) => {
+      const url = new URL(options.endpoint);
+      expect(url.pathname).toBe('/v1/conditional_keysets');
+      expect([...url.searchParams.keys()]).toEqual(['condition_id', 'limit', 'cursor']);
+      expect(url.searchParams.getAll('condition_id')).toEqual([conditionId]);
+      expect(url.searchParams.get('cursor')).toBe('opaque+?/=');
+      return { keysets: [], next_cursor: null };
+    }) as RequestFn;
+    await new Mint(mintUrl).getConditionalKeysets(
+      { condition_id: conditionId, limit: 100, cursor: 'opaque+?/=' },
+      requestSpy,
+    );
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['', 'AB'.repeat(32), 'a'.repeat(63), 'g'.repeat(64), null, 7])(
+    'rejects malformed condition selectors before I/O: %s',
+    async (conditionId) => {
+      const requestSpy = vi.fn() as RequestFn;
+      await expect(
+        new Mint(mintUrl).getConditionalKeysets({ condition_id: conditionId as never }, requestSpy),
+      ).rejects.toThrow('condition_id must be');
+      expect(requestSpy).not.toHaveBeenCalled();
+    },
+  );
+
   it('lists conditional keysets with query parameters and normalizes metadata numbers', async () => {
     const requestSpy = vi.fn(async (options: ReqArgs) => {
       expect(options.endpoint).toBe(

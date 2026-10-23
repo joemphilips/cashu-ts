@@ -47,6 +47,10 @@ export interface ConditionalKeysetInfo {
 }
 
 export interface GetConditionalKeysetsQuery {
+  /**
+   * Exact condition selector. Recovery requires advertised condition_keyset_filter support.
+   */
+  condition_id?: string;
   since?: number;
   limit?: number;
   active?: boolean;
